@@ -1,16 +1,24 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Send } from 'lucide-react';
+import { X, Send, Upload, Link2 } from 'lucide-react';
+import emailjs from '@emailjs/browser';
 
 export default function ContactModal({ isOpen, onClose }) {
-  const [formData, setFormData] = useState({ name: '', email: '', phone: '', message: '' });
+  const [formData, setFormData] = useState({ 
+    name: '', 
+    email: '', 
+    phone: '', 
+    message: '',
+    marketingMaterialsLink: '',
+    marketingMaterialsFiles: []
+  });
   const [status, setStatus] = useState('idle'); // idle, submitting, success, error
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setStatus('submitting');
 
-    // Replace this URL with the Test or Production Webhook URL from n8n 
+    // Try n8n webhook first
     const N8N_WEBHOOK_URL = 'http://localhost:5678/webhook-test/freeflow-lead';
 
     try {
@@ -27,11 +35,42 @@ export default function ContactModal({ isOpen, onClose }) {
           onClose();
           setFormData({ name: '', email: '', phone: '', message: '' });
         }, 3000);
-      } else {
-        setStatus('error');
+        return;
       }
+
+      // Fallback to EmailJS if webhook fails
+      console.log('Webhook failed, falling back to EmailJS...');
     } catch (error) {
-      console.error('Webhook Error:', error);
+      console.log('Webhook error, falling back to EmailJS:', error);
+    }
+
+    // EmailJS fallback
+    try {
+      // Replace these with your actual EmailJS credentials
+      const EMAILJS_SERVICE_ID = 'your_service_id';
+      const EMAILJS_TEMPLATE_ID = 'your_template_id';
+      const EMAILJS_PUBLIC_KEY = 'your_public_key';
+
+      await emailjs.send(
+        EMAILJS_SERVICE_ID,
+        EMAILJS_TEMPLATE_ID,
+        {
+          from_name: formData.name,
+          from_email: formData.email,
+          phone: formData.phone,
+          message: formData.message
+        },
+        EMAILJS_PUBLIC_KEY
+      );
+
+      setStatus('success');
+      setTimeout(() => {
+        setStatus('idle');
+        onClose();
+        setFormData({ name: '', email: '', phone: '', message: '' });
+      }, 3000);
+    } catch (emailError) {
+      console.error('EmailJS Error:', emailError);
       setStatus('error');
     }
   };
@@ -89,6 +128,86 @@ export default function ContactModal({ isOpen, onClose }) {
                 <div>
                   <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.9rem', color: 'var(--text-muted)' }}>How can we scale your business?</label>
                   <textarea required rows="4" value={formData.message} onChange={e => setFormData({...formData, message: e.target.value})} style={{ width: '100%', padding: '0.75rem', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: 'white', outline: 'none', resize: 'vertical' }} />
+                </div>
+
+                {/* Marketing Materials Section */}
+                <div style={{ paddingTop: '1rem', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+                  <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.9rem', color: 'var(--text-muted)' }}>
+                    <Upload size={16} style={{ display: 'inline', marginRight: '0.5rem', verticalAlign: 'middle' }} />
+                    Marketing Materials <span style={{ fontSize: '0.8rem' }}>(Optional)</span>
+                  </label>
+                  <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem', marginBottom: '0.75rem' }}>
+                    Share existing assets, brand guidelines, or a Google Drive link.
+                  </p>
+                  
+                  <input
+                    type="text"
+                    placeholder="Google Drive or cloud storage link"
+                    value={formData.marketingMaterialsLink}
+                    onChange={e => setFormData({...formData, marketingMaterialsLink: e.target.value})}
+                    style={{ width: '100%', padding: '0.75rem', background: 'rgba(255,255,255,0.03)', border: '1px dashed rgba(255,255,255,0.15)', borderRadius: '8px', color: 'white', outline: 'none', fontSize: '0.9rem', marginBottom: '0.75rem' }}
+                  />
+                  
+                  <div
+                    style={{
+                      border: '2px dashed rgba(255,255,255,0.15)',
+                      borderRadius: '8px',
+                      padding: '1.5rem',
+                      textAlign: 'center',
+                      cursor: 'pointer',
+                      transition: 'all 0.3s ease'
+                    }}
+                    onClick={() => document.getElementById('contactFileInput').click()}
+                  >
+                    <Upload size={24} color="var(--text-muted)" style={{ marginBottom: '0.5rem' }} />
+                    <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', margin: 0 }}>
+                      Or upload files directly
+                    </p>
+                    <input
+                      id="contactFileInput"
+                      type="file"
+                      multiple
+                      accept=".png,.jpg,.jpeg,.pdf,.doc,.docx"
+                      style={{ display: 'none' }}
+                      onChange={(e) => {
+                        const files = Array.from(e.target.files);
+                        setFormData(prev => ({ ...prev, marketingMaterialsFiles: [...prev.marketingMaterialsFiles, ...files] }));
+                      }}
+                    />
+                  </div>
+
+                  {formData.marketingMaterialsFiles.length > 0 && (
+                    <div style={{ marginTop: '0.75rem' }}>
+                      {formData.marketingMaterialsFiles.map((file, index) => (
+                        <div
+                          key={index}
+                          style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            padding: '0.5rem',
+                            background: 'rgba(255,255,255,0.03)',
+                            borderRadius: '4px',
+                            marginBottom: '0.25rem',
+                            fontSize: '0.8rem'
+                          }}
+                        >
+                          <span>{file.name}</span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setFormData(prev => ({
+                                ...prev,
+                                marketingMaterialsFiles: prev.marketingMaterialsFiles.filter((_, i) => i !== index)
+                              }));
+                            }}
+                            style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', fontSize: '0.8rem' }}
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
 
                 {status === 'error' && (

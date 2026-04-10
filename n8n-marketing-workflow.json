@@ -1,0 +1,109 @@
+{
+  "name": "B2B Custom AI Lead-Gen Workflow | FreeFlow Media",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "lead-capture",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "name": "Website Form (Webhook)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [ 250, 300 ],
+      "notes": "Trigger: Connect your website contact form to send data here"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "sheetId": "ENTER_YOUR_SHEET_ID_HERE"
+      },
+      "name": "Save to Google Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 3,
+      "position": [ 450, 300 ],
+      "notes": "CRM: Saves the lead info securely"
+    },
+    {
+      "parameters": {
+        "prompt": "Write a highly personalized outreach email to this lead based on this data: {{$json.body}}",
+        "model": "gemini-pro"
+      },
+      "name": "Google Gemini (AI Email Writer)",
+      "type": "n8n-nodes-base.googleGemini",
+      "typeVersion": 1,
+      "position": [ 650, 300 ],
+      "notes": "AI Logic: Analyzes lead and writes personalization"
+    },
+    {
+      "parameters": {
+        "fromEmail": "your-email@freeflowmedia.com",
+        "toEmail": "={{ $node['Website Form (Webhook)'].json.body.email }}",
+        "subject": "Quick question regarding {{$node['Website Form (Webhook)'].json.body.company}}",
+        "html": "={{ $node['Google Gemini (AI Email Writer)'].json.text }}"
+      },
+      "name": "Send Outreach Email",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 1,
+      "position": [ 850, 300 ],
+      "notes": "Action: Sends the AI email out to the client"
+    },
+    {
+      "parameters": {
+        "text": "=New Lead Processed! AI Email sent to {{$node['Website Form (Webhook)'].json.body.email}}."
+      },
+      "name": "Notify Team (Slack/Telegram)",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2,
+      "position": [ 1050, 300 ]
+    }
+  ],
+  "connections": {
+    "Website Form (Webhook)": {
+      "main": [
+        [
+          {
+            "node": "Save to Google Sheets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save to Google Sheets": {
+      "main": [
+        [
+          {
+            "node": "Google Gemini (AI Email Writer)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini (AI Email Writer)": {
+      "main": [
+        [
+          {
+            "node": "Send Outreach Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Outreach Email": {
+      "main": [
+        [
+          {
+            "node": "Notify Team (Slack/Telegram)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {}
+}

@@ -1,27 +1,35 @@
+import { Link } from 'react-router-dom';
+
 export default function Footer() {
   return (
     <footer className="footer">
       <div className="container">
         <div className="footer-content">
           <div>
-            <h3 className="gradient-text">FreeFlow Media</h3>
+            <Link to="/" style={{ textDecoration: 'none' }}>
+              <h3 className="gradient-text" style={{ cursor: 'pointer' }}>FreeFlow Media</h3>
+            </Link>
             <p className="footer-text">Command the Digital Space. We engineer growth for brands ready to dominate their market.</p>
           </div>
           <div>
             <h4>Services</h4>
             <ul>
-              <li>SEO Optimization</li>
-              <li>Social Media Management</li>
-              <li>PPC Campaigns</li>
-              <li>Automation Systems</li>
+              <li><Link to="/pricing">SEO Optimization</Link></li>
+              <li><Link to="/pricing">Social Media Management</Link></li>
+              <li><Link to="/pricing">PPC Campaigns</Link></li>
+              <li><Link to="/automation">Automation Systems</Link></li>
+              <li><Link to="/pricing">Web Development</Link></li>
+              <li><Link to="/pricing">Shopify Stores</Link></li>
+              <li><Link to="/pricing">WooCommerce</Link></li>
             </ul>
           </div>
           <div>
             <h4>Company</h4>
             <ul>
-              <li>About Us</li>
-              <li>Our Work</li>
-              <li>Pricing</li>
+              <li><Link to="/about">About Us</Link></li>
+              <li><Link to="/work">Our Work</Link></li>
+              <li><Link to="/pricing">Pricing</Link></li>
+              <li><Link to="/client-portal">Client Portal</Link></li>
             </ul>
           </div>
         </div>

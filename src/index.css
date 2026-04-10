@@ -256,12 +256,16 @@ h2 {
 
 .footer-content ul li {
   margin-bottom: 1rem;
-  color: var(--text-muted);
-  cursor: pointer;
-  transition: all 0.2s ease;
 }
 
-.footer-content ul li:hover {
+.footer-content ul li a {
+  color: var(--text-muted);
+  text-decoration: none;
+  transition: all 0.2s ease;
+  display: inline-block;
+}
+
+.footer-content ul li a:hover {
   color: var(--accent-color);
   transform: translateX(4px);
 }

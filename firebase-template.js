@@ -10,7 +10,8 @@
  *    `npm install @google/genai cors`
  * 4. Replace the contents of `functions/index.js` with the code below.
  * 5. Set your Gemini API key in Firebase:
- *    `firebase functions:secrets:set GEMINI_API_KEY`
+   `firebase functions:secrets:set GEMINI_API_KEY`
+ *    `firebase functions:secrets:set APIFY_API_KEY`
  * 6. Deploy with: `firebase deploy --only functions`
  */
 

@@ -2,17 +2,49 @@ rules_version='2'
 
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /{document=**} {
-      // This rule allows anyone with your database reference to view, edit,
-      // and delete all data in your database. It is useful for getting
-      // started, but it is configured to expire after 30 days because it
-      // leaves your app open to attackers. At that time, all client
-      // requests to your database will be denied.
-      //
-      // Make sure to write security rules for your app before that time, or
-      // else all client requests to your database will be denied until you
-      // update your rules.
-      allow read, write: if request.time < timestamp.date(2026, 5, 10);
+    
+    // Testimonials - public read, authenticated write
+    match /testimonials/{docId} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+    
+    // Trust Badges - public read, authenticated write
+    match /trustBadges/{docId} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+    
+    // Site Content (Stats) - public read, authenticated write
+    match /siteContent/{docId} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+    
+    // Social Proof Notifications - public read, authenticated write
+    match /socialProofNotifications/{docId} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+    
+    // Leads - authenticated users only
+    match /leads/{docId} {
+      allow read, write: if request.auth != null;
+    }
+    
+    // Clients - authenticated users only
+    match /clients/{docId} {
+      allow read, write: if request.auth != null;
+    }
+    
+    // Campaigns - authenticated users only
+    match /campaigns/{docId} {
+      allow read, write: if request.auth != null;
+    }
+    
+    // Reports - authenticated users only
+    match /reports/{docId} {
+      allow read, write: if request.auth != null;
     }
   }
 }

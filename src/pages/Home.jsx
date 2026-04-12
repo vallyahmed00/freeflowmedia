@@ -1,36 +1,24 @@
 import { motion } from 'framer-motion';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { TrendingUp, Users, Target, BarChart3, Star, ArrowUpRight, Globe, ShoppingCart, Package, Zap } from 'lucide-react';
 import ContactModal from '../components/ContactModal';
+import TrustBadges from '../components/TrustBadges';
+import { getAllTestimonials, getStats } from '../services/contentService';
 
-const stats = [
-  { icon: TrendingUp, value: '250+', label: 'Campaigns Launched', color: '#9333EA' },
-  { icon: Users, value: '98%', label: 'Client Retention Rate', color: '#A855F7' },
-  { icon: Target, value: '3.5x', label: 'Average ROI', color: '#C084FC' },
-  { icon: BarChart3, value: '10M+', label: 'Leads Generated', color: '#9333EA' }
+const defaultStats = [
+  { icon: TrendingUp, value: '0', label: 'Campaigns Launched', color: '#9333EA' },
+  { icon: Users, value: '0%', label: 'Client Retention Rate', color: '#A855F7' },
+  { icon: Target, value: '0x', label: 'Average ROI', color: '#C084FC' },
+  { icon: BarChart3, value: '0', label: 'Leads Generated', color: '#9333EA' }
 ];
 
-const testimonials = [
-  {
-    name: 'Sarah Chen',
-    role: 'CEO, TechFlow',
-    content: 'FreeFlow Media transformed our digital presence. Our organic traffic increased by 340% in just 6 months. Their data-driven approach is unmatched.',
-    rating: 5
-  },
-  {
-    name: 'Marcus Johnson',
-    role: 'Marketing Director, Elevate Brands',
-    content: 'The automation workflows they built saved us 20+ hours per week. Our PPC campaigns now consistently deliver 4x ROAS. Absolute game-changers.',
-    rating: 5
-  },
-  {
-    name: 'Elena Rodriguez',
-    role: 'Founder, GreenLeaf Co.',
-    content: 'Working with FreeFlow was the best investment we made. They don\'t just run campaigns—they build systems that scale. Our revenue doubled in 8 months.',
-    rating: 5
-  }
-];
+const iconMap = {
+  'TrendingUp': TrendingUp,
+  'Users': Users,
+  'Target': Target,
+  'BarChart3': BarChart3
+};
 
 const ecommerceServices = [
   {
@@ -62,6 +50,35 @@ const ecommerceServices = [
 export default function Home() {
   const navigate = useNavigate();
   const [isContactOpen, setIsContactOpen] = useState(false);
+  const [testimonials, setTestimonials] = useState([]);
+  const [statsData, setStatsData] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        const [testimonialsData, statsDataResult] = await Promise.all([
+          getAllTestimonials(true),
+          getStats()
+        ]);
+        setTestimonials(testimonialsData);
+        setStatsData(statsDataResult);
+      } catch (error) {
+        console.error('Error loading homepage data:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    loadData();
+  }, []);
+
+  // Build stats array from Firestore data
+  const stats = statsData ? [
+    { icon: TrendingUp, value: statsData.stat1?.value || '0', label: statsData.stat1?.label || '', color: '#9333EA' },
+    { icon: Users, value: statsData.stat2?.value || '0', label: statsData.stat2?.label || '', color: '#A855F7' },
+    { icon: Target, value: statsData.stat3?.value || '0', label: statsData.stat3?.label || '', color: '#C084FC' },
+    { icon: BarChart3, value: statsData.stat4?.value || '0', label: statsData.stat4?.label || '', color: '#9333EA' }
+  ] : defaultStats;
 
   return (
     <motion.div
@@ -150,6 +167,9 @@ export default function Home() {
         </div>
       </section>
 
+      {/* Trust Badges Section */}
+      <TrustBadges />
+
       {/* Testimonials Section */}
       <section style={{ padding: '6rem 0', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
         <div className="container">
@@ -167,35 +187,56 @@ export default function Home() {
           </motion.div>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '2rem' }}>
-            {testimonials.map((testimonial, index) => (
-              <motion.div
-                key={index}
-                initial={{ y: 30, opacity: 0 }}
-                whileInView={{ y: 0, opacity: 1 }}
-                viewport={{ once: true, margin: '-50px' }}
-                transition={{ delay: index * 0.15, duration: 0.5 }}
-                className="glass-panel"
-                style={{ padding: '2.5rem', position: 'relative' }}
-              >
-                <div style={{ display: 'flex', gap: '0.25rem', marginBottom: '1.5rem' }}>
-                  {[...Array(testimonial.rating)].map((_, i) => (
-                    <Star key={i} size={20} fill="#9333EA" color="#9333EA" />
-                  ))}
-                </div>
-                <p style={{ color: 'var(--text-main)', fontSize: '1.05rem', lineHeight: 1.7, marginBottom: '2rem', fontStyle: 'italic' }}>
-                  "{testimonial.content}"
+            {testimonials.length > 0 ? (
+              testimonials.map((testimonial, index) => (
+                <motion.div
+                  key={testimonial.id}
+                  initial={{ y: 30, opacity: 0 }}
+                  whileInView={{ y: 0, opacity: 1 }}
+                  viewport={{ once: true, margin: '-50px' }}
+                  transition={{ delay: index * 0.15, duration: 0.5 }}
+                  className="glass-panel"
+                  style={{ padding: '2.5rem', position: 'relative' }}
+                >
+                  <div style={{ display: 'flex', gap: '0.25rem', marginBottom: '1.5rem' }}>
+                    {[...Array(testimonial.rating)].map((_, i) => (
+                      <Star key={i} size={20} fill="#9333EA" color="#9333EA" />
+                    ))}
+                  </div>
+                  <p style={{ color: 'var(--text-main)', fontSize: '1.05rem', lineHeight: 1.7, marginBottom: '2rem', fontStyle: 'italic' }}>
+                    "{testimonial.quote}"
+                  </p>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                    {testimonial.imageUrl ? (
+                      <img 
+                        src={testimonial.imageUrl} 
+                        alt={testimonial.name}
+                        style={{ width: '48px', height: '48px', borderRadius: '50%', objectFit: 'cover' }}
+                      />
+                    ) : (
+                      <div style={{ width: '48px', height: '48px', borderRadius: '50%', background: 'linear-gradient(135deg, var(--primary-color), var(--accent-color))', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.2rem', fontWeight: 'bold' }}>
+                        {testimonial.name.charAt(0)}
+                      </div>
+                    )}
+                    <div>
+                      <h4 style={{ fontSize: '1rem', marginBottom: '0.25rem' }}>{testimonial.name}</h4>
+                      <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>
+                        {testimonial.role && testimonial.company 
+                          ? `${testimonial.role} at ${testimonial.company}`
+                          : testimonial.company || testimonial.role
+                        }
+                      </p>
+                    </div>
+                  </div>
+                </motion.div>
+              ))
+            ) : (
+              <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '3rem' }}>
+                <p style={{ color: 'var(--text-muted)', fontSize: '1.1rem' }}>
+                  Testimonials coming soon.
                 </p>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                  <div style={{ width: '48px', height: '48px', borderRadius: '50%', background: 'linear-gradient(135deg, var(--primary-color), var(--accent-color))', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.2rem', fontWeight: 'bold' }}>
-                    {testimonial.name.charAt(0)}
-                  </div>
-                  <div>
-                    <h4 style={{ fontSize: '1rem', marginBottom: '0.25rem' }}>{testimonial.name}</h4>
-                    <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>{testimonial.role}</p>
-                  </div>
-                </div>
-              </motion.div>
-            ))}
+              </div>
+            )}
           </div>
         </div>
       </section>

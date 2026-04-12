@@ -62,3 +62,13 @@ export const onAuthChange = (callback) => {
 export const getCurrentUser = () => {
   return auth.currentUser;
 };
+
+// Admin sign in (alias for signIn)
+export const signInAdmin = async (email, password) => {
+  return await signIn(email, password);
+};
+
+// Admin sign out (alias for logOut)
+export const signOutAdmin = async () => {
+  await logOut();
+};

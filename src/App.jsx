@@ -4,6 +4,9 @@ import Navbar from './components/Navbar';
 import Footer from './components/Footer';
 import ThreeBackground from './components/ThreeBackground';
 import ErrorBoundary from './components/ErrorBoundary';
+import BackToTop from './components/BackToTop';
+import SocialProofNotifications from './components/SocialProofNotifications';
+import DemoModeBanner from './components/DemoModeBanner';
 
 // Lazy load pages for code splitting
 const Home = lazy(() => import('./pages/Home'));
@@ -15,6 +18,7 @@ const Generator = lazy(() => import('./pages/Generator'));
 const MarketingGenerator = lazy(() => import('./pages/MarketingGenerator'));
 const NotFound = lazy(() => import('./pages/NotFound'));
 const ClientPortal = lazy(() => import('./pages/ClientPortal'));
+const Admin = lazy(() => import('./pages/Admin'));
 
 // Loading component
 const PageLoader = () => (
@@ -56,6 +60,9 @@ const AppContent = () => {
 
   return (
     <div className="app-container">
+      {/* Demo Mode Banner */}
+      <DemoModeBanner />
+
       {/* The 3D background stays behind everything */}
       <ThreeBackground />
 
@@ -74,6 +81,7 @@ const AppContent = () => {
             <Route path="/generate" element={<Generator />} />
             <Route path="/marketing-generator" element={<MarketingGenerator />} />
             <Route path="/client-portal" element={<ClientPortal />} />
+            <Route path="/admin" element={<Admin />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </Suspense>
@@ -81,6 +89,12 @@ const AppContent = () => {
 
       {/* Footer hidden on App Views */}
       {!isAppView && <Footer />}
+
+      {/* Back to Top Button */}
+      <BackToTop />
+
+      {/* Social Proof Notifications */}
+      <SocialProofNotifications />
     </div>
   );
 };

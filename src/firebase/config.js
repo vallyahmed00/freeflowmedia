@@ -22,5 +22,7 @@ export const db = getFirestore(app);
 export const storage = getStorage(app);
 export const functions = getFunctions(app);
 export const analytics = getAnalytics(app);
+
+export const APIFY_API_KEY = "apify_api_g8pXbduM9sSQvz6TJ0WQnde9UEcUzT170xJW";
 export const GENERATE_STRATEGY_URL = "https://us-central1-freeflow-media.cloudfunctions.net/generateStrategy";
 export default app;

@@ -1,13 +1,19 @@
 {
   "name": "freeflow-media",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
   "type": "module",
+  "description": "FreeFlow Media - Digital Marketing Agency Website with AI-Powered Content Management",
+  "author": "FreeFlow Media",
+  "homepage": "https://freeflowmedia.com",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "watch": "chokidar 'src/**/*' -c 'npm run build && firebase deploy --only hosting'",
+    "deploy": "npm run build && firebase deploy",
+    "admin": "echo 'Visit http://localhost:5173/admin to access the admin panel'"
   },
   "dependencies": {
     "@emailjs/browser": "^4.4.1",

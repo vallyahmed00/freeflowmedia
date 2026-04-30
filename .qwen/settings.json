@@ -5,7 +5,8 @@
       "Bash(npm install *)",
       "Bash(sleep *)",
       "Bash(xargs *)",
-      "Bash(git checkout *)"
+      "Bash(git checkout *)",
+      "Bash(mkdir *)"
     ]
   },
   "$version": 3

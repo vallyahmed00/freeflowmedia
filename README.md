@@ -1,4 +1,4 @@
-# FreeFlow Media | Digital Marketing Agency
+# Drift Studio | Digital Marketing Agency
 
 > **Command the Digital Space** - Data-driven SEO, scroll-stopping social media, and high-converting PPC campaigns.
 
@@ -6,7 +6,7 @@
 
 ## 🚀 About
 
-FreeFlow Media is a premium digital marketing agency website with integrated AI-powered marketing tools. We help brands dominate their market through:
+Drift Studio is a premium digital marketing agency website with integrated AI-powered marketing tools. We help brands dominate their market through:
 
 - **SEO** - Data-driven search engine optimization
 - **Social Media** - Scroll-stopping content that engages
@@ -239,8 +239,8 @@ This is a private agency project. For questions or issues, contact the developme
 
 ## 📄 License
 
-Proprietary - FreeFlow Media © 2026
+Proprietary - Drift Studio © 2026
 
 ---
 
-**Built with ❤️ by FreeFlow Media** | [freeflowmedia.com](https://freeflowmedia.com)
+**Built with ❤️ by Drift Studio** | [freeflowmedia.com](https://freeflowmedia.com)

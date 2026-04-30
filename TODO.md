@@ -1,4 +1,4 @@
-# FreeFlow Media - TODO & Project Status
+# Drift Studio - TODO & Project Status
 
 ## ✅ Completed Features
 

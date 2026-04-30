@@ -1,4 +1,4 @@
-# Admin Panel Guide - FreeFlow Media
+# Admin Panel Guide - Drift Studio
 
 ## 🎯 Overview
 
@@ -345,7 +345,7 @@ firebase deploy --only storage
    - Name: "John Doe"
    - Role: "CEO"
    - Company: "TechCorp"
-   - Quote: "FreeFlow Media transformed our business completely!"
+   - Quote: "Drift Studio transformed our business completely!"
    - Rating: 5
    - Click "Add Testimonial"
    ```

@@ -1,4 +1,4 @@
-# FreeFlow Media - Firebase Setup Guide
+# Drift Studio - Firebase Setup Guide
 
 ## 🔥 Firebase Setup
 

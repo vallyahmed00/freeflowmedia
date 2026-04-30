@@ -1,5 +1,6 @@
 import React, { Suspense, lazy } from 'react';
 import { BrowserRouter as Router, Routes, Route, useLocation } from 'react-router-dom';
+import { CurrencyProvider } from './context/CurrencyContext';
 import Navbar from './components/Navbar';
 import Footer from './components/Footer';
 import ThreeBackground from './components/ThreeBackground';
@@ -7,6 +8,7 @@ import ErrorBoundary from './components/ErrorBoundary';
 import BackToTop from './components/BackToTop';
 import SocialProofNotifications from './components/SocialProofNotifications';
 import DemoModeBanner from './components/DemoModeBanner';
+import AdminRoute from './components/AdminRoute';
 
 // Lazy load pages for code splitting
 const Home = lazy(() => import('./pages/Home'));
@@ -16,6 +18,7 @@ const Pricing = lazy(() => import('./pages/Pricing'));
 const Automation = lazy(() => import('./pages/Automation'));
 const Generator = lazy(() => import('./pages/Generator'));
 const MarketingGenerator = lazy(() => import('./pages/MarketingGenerator'));
+const PriceComparison = lazy(() => import('./pages/PriceComparison'));
 const NotFound = lazy(() => import('./pages/NotFound'));
 const ClientPortal = lazy(() => import('./pages/ClientPortal'));
 const Admin = lazy(() => import('./pages/Admin'));
@@ -80,6 +83,7 @@ const AppContent = () => {
             <Route path="/leads" element={<Generator />} />
             <Route path="/generate" element={<Generator />} />
             <Route path="/marketing-generator" element={<MarketingGenerator />} />
+            <Route path="/price-comparison" element={<PriceComparison />} />
             <Route path="/client-portal" element={<ClientPortal />} />
             <Route path="/admin" element={<Admin />} />
             <Route path="*" element={<NotFound />} />
@@ -102,9 +106,11 @@ const AppContent = () => {
 function App() {
   return (
     <Router>
-      <ErrorBoundary>
-        <AppContent />
-      </ErrorBoundary>
+      <CurrencyProvider>
+        <ErrorBoundary>
+          <AppContent />
+        </ErrorBoundary>
+      </CurrencyProvider>
     </Router>
   );
 }

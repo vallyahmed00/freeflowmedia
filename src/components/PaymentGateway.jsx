@@ -42,7 +42,7 @@ const PaymentGateway = ({ onSuccess, onBack }) => {
             <p><strong>EFT Instructions</strong></p>
             <div className="bank-details">
               <p>Bank: FNB</p>
-              <p>Account Name: FreeFlow Media</p>
+              <p>Account Name: Drift Studio</p>
               <p>Account Number: 62000000000</p>
               <p>Branch Code: 250655</p>
               <p>Reference: STRATEGY-[YOUR_NAME]</p>

@@ -1,4 +1,4 @@
-# Testing Guide - FreeFlow Media
+# Testing Guide - Drift Studio
 
 ## 🚀 Quick Start
 

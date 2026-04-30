@@ -103,7 +103,7 @@ export default function Home() {
             animate={{ y: 0, opacity: 1 }}
             transition={{ delay: 0.4 }}
           >
-            At FreeFlow Media, we don't just follow trends—we set them. Through data-driven SEO, scroll-stopping social media, and high-converting PPC campaigns, we engineer growth for brands ready to dominate.
+            At Drift Studio, we don't just follow trends—we set them. Through data-driven SEO, scroll-stopping social media, and high-converting PPC campaigns, we engineer growth for brands ready to dominate.
           </motion.p>
           <motion.div
             className="hero-actions"
@@ -302,7 +302,7 @@ export default function Home() {
           >
             <h2 style={{ fontSize: '2.5rem', marginBottom: '1rem' }}>Ready to <span className="gradient-text">Dominate</span>?</h2>
             <p style={{ color: 'var(--text-muted)', fontSize: '1.2rem', marginBottom: '2.5rem' }}>
-              Join hundreds of brands that have already transformed their digital presence with FreeFlow Media.
+              Join hundreds of brands that have already transformed their digital presence with Drift Studio.
             </p>
             <button
               className="btn btn-primary"

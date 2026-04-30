@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import './Navbar.css';
-import logo from '../assets/logo.png'; // This imports your actual logo file
+import logo from '../assets/logo.svg'; // This imports your actual logo file
 
 const Navbar = () => {
   const [isOpen, setIsOpen] = useState(false);
@@ -9,9 +9,9 @@ const Navbar = () => {
   return (
     <nav className="navbar">
       <div className="nav-container">
-        {/* LOGO SECTION - Now using your PNG image */}
+        {/* LOGO SECTION - Now using your PNG/SVG image */}
         <Link to="/" className="nav-logo-link">
-          <img src={logo} alt="FreeFlow Media Logo" className="nav-logo-img" />
+          <img src={logo} alt="Drift Studio Logo" className="nav-logo-img" />
         </Link>
 
         <div className="menu-toggle" onClick={() => setIsOpen(!isOpen)}>
@@ -26,6 +26,7 @@ const Navbar = () => {
           <li><Link to="/work" onClick={() => setIsOpen(false)}>Work</Link></li>
           <li><Link to="/automation" onClick={() => setIsOpen(false)}>Automation</Link></li>
           <li><Link to="/pricing" onClick={() => setIsOpen(false)}>Pricing</Link></li>
+          <li><Link to="/price-comparison" onClick={() => setIsOpen(false)}>Price Comparison</Link></li>
           <li><Link to="/leads" onClick={() => setIsOpen(false)}>Leads</Link></li>
           <li><Link to="/client-portal" onClick={() => setIsOpen(false)}>Client Portal</Link></li>
             <li>

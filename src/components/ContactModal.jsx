@@ -2,76 +2,128 @@ import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Send, Upload, Link2 } from 'lucide-react';
 import emailjs from '@emailjs/browser';
+import { addLead } from '../services/contentService';
+import { runNewLeadAutomation } from '../services/automationServices';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { storage } from '../firebase/config';
 
 export default function ContactModal({ isOpen, onClose }) {
-  const [formData, setFormData] = useState({ 
-    name: '', 
-    email: '', 
-    phone: '', 
+  const [formData, setFormData] = useState({
+    name: '',
+    email: '',
+    phone: '',
     message: '',
     marketingMaterialsLink: '',
     marketingMaterialsFiles: []
   });
   const [status, setStatus] = useState('idle'); // idle, submitting, success, error
+  const [uploadProgress, setUploadProgress] = useState(0);
+
+  const uploadFilesToStorage = async (files) => {
+    const uploadPromises = files.map(async (file) => {
+      const fileRef = ref(storage, `contact-form-uploads/${Date.now()}-${file.name}`);
+      const snapshot = await uploadBytes(fileRef, file);
+      return await getDownloadURL(snapshot.ref);
+    });
+    return Promise.all(uploadPromises);
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setStatus('submitting');
-
-    // Try n8n webhook first
-    const N8N_WEBHOOK_URL = 'http://localhost:5678/webhook-test/freeflow-lead';
+    setUploadProgress(0);
 
     try {
-      const response = await fetch(N8N_WEBHOOK_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData)
-      });
-
-      if (response.ok) {
-        setStatus('success');
-        setTimeout(() => {
-          setStatus('idle');
-          onClose();
-          setFormData({ name: '', email: '', phone: '', message: '' });
-        }, 3000);
-        return;
+      // Step 1: Upload files to Firebase Storage (if any)
+      let fileUrls = [];
+      if (formData.marketingMaterialsFiles.length > 0) {
+        setUploadProgress(20);
+        try {
+          fileUrls = await uploadFilesToStorage(formData.marketingMaterialsFiles);
+          setUploadProgress(50);
+        } catch (uploadError) {
+          console.error('File upload failed:', uploadError);
+          // Continue without files if upload fails
+        }
       }
 
-      // Fallback to EmailJS if webhook fails
-      console.log('Webhook failed, falling back to EmailJS...');
-    } catch (error) {
-      console.log('Webhook error, falling back to EmailJS:', error);
-    }
+      // Step 2: Save lead to Firebase Firestore (PRIMARY)
+      setUploadProgress(60);
+      const leadData = {
+        business_name: formData.name,
+        industry: '',
+        location: '',
+        status: 'new',
+        email: formData.email,
+        phone: formData.phone,
+        website: '',
+        notes: formData.message,
+        marketingMaterialsLink: formData.marketingMaterialsLink,
+        marketingMaterialsFiles: fileUrls,
+        source: 'contact_form',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
 
-    // EmailJS fallback
-    try {
-      // Replace these with your actual EmailJS credentials
-      const EMAILJS_SERVICE_ID = 'your_service_id';
-      const EMAILJS_TEMPLATE_ID = 'your_template_id';
-      const EMAILJS_PUBLIC_KEY = 'your_public_key';
+      await addLead(leadData);
+      setUploadProgress(90);
 
-      await emailjs.send(
-        EMAILJS_SERVICE_ID,
-        EMAILJS_TEMPLATE_ID,
-        {
-          from_name: formData.name,
-          from_email: formData.email,
-          phone: formData.phone,
-          message: formData.message
-        },
-        EMAILJS_PUBLIC_KEY
-      );
+      // Step 4: Trigger complete automation sequence with multi-platform notifications
+      // Platforms: slack, discord, teams, telegram, email
+      runNewLeadAutomation(leadData, ['discord', 'telegram', 'email']).catch(err => {
+        console.log('Automation sequence failed (non-critical):', err);
+      });
 
+      setUploadProgress(100);
       setStatus('success');
       setTimeout(() => {
         setStatus('idle');
+        setUploadProgress(0);
         onClose();
-        setFormData({ name: '', email: '', phone: '', message: '' });
+        setFormData({ 
+          name: '', 
+          email: '', 
+          phone: '', 
+          message: '',
+          marketingMaterialsLink: '',
+          marketingMaterialsFiles: []
+        });
       }, 3000);
-    } catch (emailError) {
-      console.error('EmailJS Error:', emailError);
-      setStatus('error');
+    } catch (error) {
+      console.error('Error saving lead:', error);
+
+      // Fallback to EmailJS if Firebase fails
+      try {
+        const EMAILJS_SERVICE_ID = import.meta.env.VITE_EMAILJS_SERVICE_ID || 'your_service_id';
+        const EMAILJS_TEMPLATE_ID = import.meta.env.VITE_EMAILJS_TEMPLATE_ID || 'your_template_id';
+        const EMAILJS_PUBLIC_KEY = import.meta.env.VITE_EMAILJS_PUBLIC_KEY || 'your_public_key';
+
+        if (EMAILJS_SERVICE_ID !== 'your_service_id') {
+          await emailjs.send(
+            EMAILJS_SERVICE_ID,
+            EMAILJS_TEMPLATE_ID,
+            {
+              from_name: formData.name,
+              from_email: formData.email,
+              phone: formData.phone,
+              message: formData.message
+            },
+            EMAILJS_PUBLIC_KEY
+          );
+
+          setStatus('success');
+          setTimeout(() => {
+            setStatus('idle');
+            onClose();
+            setFormData({ name: '', email: '', phone: '', message: '' });
+          }, 3000);
+        } else {
+          setStatus('error');
+        }
+      } catch (emailError) {
+        console.error('EmailJS fallback failed:', emailError);
+        setStatus('error');
+      }
     }
   };
 
@@ -104,8 +156,8 @@ export default function ContactModal({ isOpen, onClose }) {
 
             {status === 'success' ? (
               <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} style={{ padding: '2rem', textAlign: 'center', background: 'rgba(34, 197, 94, 0.1)', border: '1px solid #22c55e', borderRadius: '12px' }}>
-                <h3 style={{ color: '#22c55e', marginBottom: '0.5rem' }}>Transmission Successful!</h3>
-                <p style={{ color: 'var(--text-muted)' }}>Our n8n automation pipeline has received your data.</p>
+                <h3 style={{ color: '#22c55e', marginBottom: '0.5rem' }}>✓ Lead Successfully Saved!</h3>
+                <p style={{ color: 'var(--text-muted)' }}>Your information has been received. Our team will contact you shortly.</p>
               </motion.div>
             ) : (
               <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
@@ -211,11 +263,11 @@ export default function ContactModal({ isOpen, onClose }) {
                 </div>
 
                 {status === 'error' && (
-                  <p style={{ color: '#ef4444', fontSize: '0.9rem' }}>Error connecting to n8n webhook. Please make sure n8n is running and the test webhook is active.</p>
+                  <p style={{ color: '#ef4444', fontSize: '0.9rem' }}>Failed to save your information. Please try again or contact us directly.</p>
                 )}
 
                 <button type="submit" disabled={status === 'submitting'} className="btn btn-primary" style={{ width: '100%', marginTop: '1rem', padding: '1rem', display: 'flex', justifyContent: 'center', gap: '0.5rem' }}>
-                  {status === 'submitting' ? 'Firing Webhook...' : (
+                  {status === 'submitting' ? `Saving... ${uploadProgress}%` : (
                     <>Initialize Sequence <Send size={18} /></>
                   )}
                 </button>

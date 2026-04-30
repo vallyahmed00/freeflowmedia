@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom';
+import { Settings } from 'lucide-react';
 
 export default function Footer() {
   return (
@@ -7,7 +8,7 @@ export default function Footer() {
         <div className="footer-content">
           <div>
             <Link to="/" style={{ textDecoration: 'none' }}>
-              <h3 className="gradient-text" style={{ cursor: 'pointer' }}>FreeFlow Media</h3>
+              <h3 className="gradient-text" style={{ cursor: 'pointer' }}>Drift Studio</h3>
             </Link>
             <p className="footer-text">Command the Digital Space. We engineer growth for brands ready to dominate their market.</p>
           </div>
@@ -34,7 +35,25 @@ export default function Footer() {
           </div>
         </div>
         <div className="footer-bottom">
-          <p>&copy; {new Date().getFullYear()} FreeFlow Media. All rights reserved.</p>
+          <p>&copy; {new Date().getFullYear()} Drift Studio. All rights reserved.</p>
+          <Link to="/admin" style={{ 
+            display: 'inline-flex', 
+            alignItems: 'center', 
+            gap: '0.4rem',
+            color: 'var(--text-muted)', 
+            fontSize: '0.85rem', 
+            textDecoration: 'none', 
+            opacity: 0.6, 
+            transition: 'opacity 0.3s, color 0.3s',
+            padding: '0.5rem 0.75rem',
+            borderRadius: '6px',
+            background: 'rgba(255, 255, 255, 0.05)'
+          }} 
+                onMouseEnter={(e) => { e.target.style.opacity = 1; e.target.style.color = 'var(--primary-color)'; }}
+                onMouseLeave={(e) => { e.target.style.opacity = 0.6; e.target.style.color = 'var(--text-muted)'; }}>
+            <Settings size={14} />
+            Admin
+          </Link>
         </div>
       </div>
     </footer>

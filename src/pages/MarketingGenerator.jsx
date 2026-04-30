@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import MarketingForm from '../components/MarketingForm';
 import PaymentGateway from '../components/PaymentGateway';
 import StrategyDashboard from '../components/StrategyDashboard';
+import { saveStrategy } from '../services/strategyService';
 import { GENERATE_STRATEGY_URL } from '../firebase/config';
 import './MarketingGenerator.css';
 
@@ -10,10 +11,11 @@ const MarketingGenerator = () => {
   const [currentStep, setCurrentStep] = useState('form');
   const [formData, setFormData] = useState(null);
   const [strategyResult, setStrategyResult] = useState(null);
+  const [strategyId, setStrategyId] = useState(null);
 
   const handleFormSubmit = (data) => {
     setFormData(data);
-    
+
     // Check for admin/promo bypass
     if (data.promoCode && data.promoCode.toLowerCase() === 'family') {
       // Bypass payment
@@ -51,10 +53,27 @@ const MarketingGenerator = () => {
 
       const result = await response.json();
       setStrategyResult(result.data);
+
+      // Save to Firebase for history and analytics
+      const strategyRecord = await saveStrategy({
+        businessName: data.businessType,
+        targetAudience: data.targetAudience,
+        businessCountry: data.businessCountry,
+        currentMarketing: data.currentMarketing,
+        strategy: result.data,
+        marketingMaterialsLink: data.marketingMaterialsLink,
+        marketingMaterialsFiles: data.marketingMaterialsFiles,
+        status: 'generated',
+        paymentStatus: data.promoCode?.toLowerCase() === 'family' ? 'paid' : 'pending',
+        paymentAmount: data.promoCode?.toLowerCase() === 'family' ? 0 : 199,
+        paymentMethod: data.promoCode?.toLowerCase() === 'family' ? 'promo' : 'yoco'
+      });
+
+      setStrategyId(strategyRecord.id);
       setCurrentStep('dashboard');
     } catch (error) {
       console.error('Generation error:', error);
-      
+
       // Fallback to mock if Firebase Function isn't set up yet
       console.log('Using mock data (Firebase Function not available)');
       await new Promise((resolve) => setTimeout(resolve, 2000));
@@ -78,6 +97,27 @@ const MarketingGenerator = () => {
       };
 
       setStrategyResult(mockResult);
+
+      // Save mock strategy to Firebase as well
+      try {
+        const strategyRecord = await saveStrategy({
+          businessName: data.businessType,
+          targetAudience: data.targetAudience,
+          businessCountry: data.businessCountry,
+          currentMarketing: data.currentMarketing,
+          strategy: mockResult,
+          marketingMaterialsLink: data.marketingMaterialsLink,
+          marketingMaterialsFiles: data.marketingMaterialsFiles,
+          status: 'generated',
+          paymentStatus: data.promoCode?.toLowerCase() === 'family' ? 'paid' : 'pending',
+          paymentAmount: data.promoCode?.toLowerCase() === 'family' ? 0 : 199,
+          paymentMethod: data.promoCode?.toLowerCase() === 'family' ? 'promo' : 'mock'
+        });
+        setStrategyId(strategyRecord.id);
+      } catch (saveError) {
+        console.error('Failed to save strategy:', saveError);
+      }
+
       setCurrentStep('dashboard');
     }
   };
@@ -93,11 +133,11 @@ const MarketingGenerator = () => {
         {currentStep === 'form' && (
           <MarketingForm onSubmit={handleFormSubmit} />
         )}
-        
+
         {currentStep === 'payment' && (
           <PaymentGateway onSuccess={handlePaymentSuccess} onBack={() => setCurrentStep('form')} />
         )}
-        
+
         {currentStep === 'generating' && (
           <div className="mg-loading">
             <div className="loader-spinner"></div>
@@ -105,12 +145,13 @@ const MarketingGenerator = () => {
             <p>Our AI is analyzing the market and crafting tailored marketing concepts for your business.</p>
           </div>
         )}
-        
+
         {currentStep === 'dashboard' && strategyResult && (
-          <StrategyDashboard 
-            data={strategyResult} 
-            formData={formData} 
-            onReset={() => setCurrentStep('form')} 
+          <StrategyDashboard
+            data={strategyResult}
+            formData={formData}
+            strategyId={strategyId}
+            onReset={() => setCurrentStep('form')}
           />
         )}
       </div>

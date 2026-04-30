@@ -1,102 +1,862 @@
 {
-  "name": "B2B Custom AI Lead-Gen Workflow | FreeFlow Media",
+  "name": "Drift Studio - Complete Marketing Automation Suite",
   "nodes": [
     {
       "parameters": {
-        "path": "lead-capture",
+        "path": "freeflow-lead",
         "responseMode": "lastNode",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "name": "Website Form Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "webhookId": "freeflow-lead-capture",
+      "notes": "Primary webhook for contact form submissions"
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "sheetId": "={{ $env.GOOGLE_SHEETS_ID }}",
+        "sheetName": "Leads",
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "business_name": "={{ $json.body.business_name }}",
+            "email": "={{ $json.body.email }}",
+            "phone": "={{ $json.body.phone }}",
+            "notes": "={{ $json.body.notes }}",
+            "source": "={{ $json.body.source }}",
+            "status": "new",
+            "created_at": "={{ $now.format('yyyy-MM-dd HH:mm:ss') }}"
+          }
+        }
+      },
+      "name": "Backup to Google Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.3,
+      "position": [460, 300],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "YOUR_GOOGLE_SHEETS_CREDENTIAL_ID",
+          "name": "Google Sheets Account"
+        }
+      },
+      "notes": "Backup lead data to Google Sheets"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://us-central1-freeflow-media.cloudfunctions.net/notifyNewLead",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "lead",
+              "value": "={{ $json.body }}"
+            },
+            {
+              "name": "platforms",
+              "value": "=['slack', 'discord', 'telegram', 'email']"
+            }
+          ]
+        },
         "options": {}
       },
-      "name": "Website Form (Webhook)",
+      "name": "Multi-Platform Notification (Slack/Discord/Telegram/Email)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [680, 300],
+      "notes": "Send notifications via Slack, Discord, Telegram, and Email using Firebase Function"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://us-central1-freeflow-media.cloudfunctions.net/sendLeadConfirmationEmail",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "lead",
+              "value": "={{ $json.body }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Send Confirmation Email",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [900, 300],
+      "notes": "Send automated confirmation email to lead"
+    },
+    {
+      "parameters": {
+        "promptType": "defineBelow",
+        "text": "=Write a highly personalized outreach email for this lead:\n\nBusiness: {{ $json.body.business_name }}\nIndustry: {{ $json.body.industry || 'Not specified' }}\nMessage: {{ $json.body.notes || 'No message' }}\n\nRequirements:\n- Reference their specific business\n- Show understanding of their challenges\n- Explain how Drift Studio can help\n- Include CTA to book a call\n- Under 200 words\n- Professional but conversational",
+        "options": {
+          "model": "gemini-2.5-pro",
+          "temperature": 0.7,
+          "maxTokens": 500
+        }
+      },
+      "name": "AI Email Generator",
+      "type": "@n8n/n8n-nodes-langchain.googleGemini",
+      "typeVersion": 1,
+      "position": [1120, 300],
+      "credentials": {
+        "googlePalmApi": {
+          "id": "YOUR_GEMINI_API_CREDENTIAL_ID",
+          "name": "Google Gemini API"
+        }
+      },
+      "notes": "Generate personalized outreach email using AI"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://us-central1-freeflow-media.cloudfunctions.net/generateOutreachEmail",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "lead",
+              "value": "={{ $json.body }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "AI Email via Firebase",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1340, 300],
+      "notes": "Call Firebase Function to generate email"
+    },
+    {
+      "parameters": {
+        "content": "## Lead Processing Complete\n\n✅ Lead saved to Firestore\n✅ Multi-platform notification sent (Slack/Discord/Telegram/Email)\n✅ Confirmation email sent\n✅ AI outreach email generated\n\n**Next Steps:**\n- Review AI-generated email in admin panel\n- Send personalized outreach within 24 hours\n- Schedule follow-up in 3 days if no response",
+        "height": 300,
+        "width": 300
+      },
+      "name": "Sticky Note - Lead Flow",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [1560, 250],
+      "notes": "Lead processing workflow summary"
+    },
+    {
+      "parameters": {
+        "triggerTimes": {
+          "item": [
+            {
+              "mode": "everyDay",
+              "hour": 9,
+              "minute": 0
+            }
+          ]
+        }
+      },
+      "name": "Social Media Post Schedule",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [240, 650],
+      "notes": "Trigger social media posts daily at 9 AM"
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://us-central1-freeflow-media.cloudfunctions.net/getScheduledPosts",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Fetch Scheduled Posts",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [460, 650],
+      "notes": "Get posts scheduled for this time from Firebase"
+    },
+    {
+      "parameters": {
+        "resource": "instagram",
+        "operation": "publish",
+        "caption": "={{ $json.caption }}",
+        "mediaUrl": "={{ $json.mediaUrl }}",
+        "additionalFields": {
+          "location": "={{ $json.location || '' }}"
+        }
+      },
+      "name": "Post to Instagram",
+      "type": "n8n-nodes-base.facebookGraphApi",
+      "typeVersion": 1,
+      "position": [680, 600],
+      "credentials": {
+        "facebookGraphApi": {
+          "id": "YOUR_FACEBOOK_CREDENTIAL_ID",
+          "name": "Facebook Graph API"
+        }
+      },
+      "notes": "Publish post to Instagram Business"
+    },
+    {
+      "parameters": {
+        "resource": "page",
+        "operation": "publish",
+        "message": "={{ $json.caption }}",
+        "link": "={{ $json.mediaUrl }}",
+        "additionalFields": {
+          "published": true
+        }
+      },
+      "name": "Post to Facebook",
+      "type": "n8n-nodes-base.facebookGraphApi",
+      "typeVersion": 1,
+      "position": [680, 700],
+      "credentials": {
+        "facebookGraphApi": {
+          "id": "YOUR_FACEBOOK_CREDENTIAL_ID",
+          "name": "Facebook Graph API"
+        }
+      },
+      "notes": "Publish post to Facebook Page"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://open.tiktokapis.com/v2/post/publish/video/init/",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.TIKTOK_ACCESS_TOKEN }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "post_info",
+              "value": "={{ { title: $json.caption, privacy_level: 'PUBLIC', disable_comment: false, disable_duet: false, disable_stitch: false } }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Post to TikTok",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [680, 800],
+      "notes": "Publish video to TikTok via API"
+    },
+    {
+      "parameters": {
+        "content": "## Social Media Posting Workflow\n\n✅ Scheduled posts fetched from Firebase\n✅ Posted to Instagram (via Facebook Graph API)\n✅ Posted to Facebook Page\n✅ Posted to TikTok (via TikTok API)\n\n**Platforms:**\n- Instagram Business\n- Facebook Page\n- TikTok\n\n**Credentials Needed:**\n- Facebook Graph API (for Instagram & Facebook)\n- TikTok Business API",
+        "height": 300,
+        "width": 300
+      },
+      "name": "Sticky Note - Social Posting",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [900, 600],
+      "notes": "Social media posting workflow summary"
+    },
+    {
+      "parameters": {
+        "path": "social-media-inbox",
+        "responseMode": "lastNode",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "name": "Social Media Inbox Webhook",
       "type": "n8n-nodes-base.webhook",
-      "typeVersion": 1,
-      "position": [ 250, 300 ],
-      "notes": "Trigger: Connect your website contact form to send data here"
-    },
-    {
-      "parameters": {
-        "operation": "append",
-        "sheetId": "ENTER_YOUR_SHEET_ID_HERE"
-      },
-      "name": "Save to Google Sheets",
-      "type": "n8n-nodes-base.googleSheets",
-      "typeVersion": 3,
-      "position": [ 450, 300 ],
-      "notes": "CRM: Saves the lead info securely"
-    },
-    {
-      "parameters": {
-        "prompt": "Write a highly personalized outreach email to this lead based on this data: {{$json.body}}",
-        "model": "gemini-pro"
-      },
-      "name": "Google Gemini (AI Email Writer)",
-      "type": "n8n-nodes-base.googleGemini",
-      "typeVersion": 1,
-      "position": [ 650, 300 ],
-      "notes": "AI Logic: Analyzes lead and writes personalization"
-    },
-    {
-      "parameters": {
-        "fromEmail": "your-email@freeflowmedia.com",
-        "toEmail": "={{ $node['Website Form (Webhook)'].json.body.email }}",
-        "subject": "Quick question regarding {{$node['Website Form (Webhook)'].json.body.company}}",
-        "html": "={{ $node['Google Gemini (AI Email Writer)'].json.text }}"
-      },
-      "name": "Send Outreach Email",
-      "type": "n8n-nodes-base.emailSend",
-      "typeVersion": 1,
-      "position": [ 850, 300 ],
-      "notes": "Action: Sends the AI email out to the client"
-    },
-    {
-      "parameters": {
-        "text": "=New Lead Processed! AI Email sent to {{$node['Website Form (Webhook)'].json.body.email}}."
-      },
-      "name": "Notify Team (Slack/Telegram)",
-      "type": "n8n-nodes-base.slack",
       "typeVersion": 2,
-      "position": [ 1050, 300 ]
+      "position": [240, 1050],
+      "webhookId": "social-inbox",
+      "notes": "Receive DMs and comments from social platforms"
+    },
+    {
+      "parameters": {
+        "promptType": "defineBelow",
+        "text": "=You are a social media manager for Drift Studio. Respond to this message professionally and helpfully:\n\nPlatform: {{ $json.platform }}\nMessage Type: {{ $json.type }} (DM/Comment)\nFrom: {{ $json.from_user }}\nMessage: {{ $json.message }}\n\nGuidelines:\n- Be friendly and professional\n- If it's a sales inquiry, direct them to book a call\n- If it's a support question, provide helpful answer\n- Keep response under 100 words\n- Use appropriate emojis\n- Sign off with '- Drift Studio Team'",
+        "options": {
+          "model": "gemini-2.5-pro",
+          "temperature": 0.7,
+          "maxTokens": 300
+        }
+      },
+      "name": "AI Response Generator",
+      "type": "@n8n/n8n-nodes-langchain.googleGemini",
+      "typeVersion": 1,
+      "position": [460, 1050],
+      "credentials": {
+        "googlePalmApi": {
+          "id": "YOUR_GEMINI_API_CREDENTIAL_ID",
+          "name": "Google Gemini API"
+        }
+      },
+      "notes": "Generate AI response to DMs and comments"
+    },
+    {
+      "parameters": {
+        "resource": "instagram",
+        "operation": "reply",
+        "message": "={{ $json.response }}",
+        "conversationId": "={{ $json.conversation_id }}"
+      },
+      "name": "Reply to Instagram DM",
+      "type": "n8n-nodes-base.facebookGraphApi",
+      "typeVersion": 1,
+      "position": [680, 1000],
+      "credentials": {
+        "facebookGraphApi": {
+          "id": "YOUR_FACEBOOK_CREDENTIAL_ID",
+          "name": "Facebook Graph API"
+        }
+      },
+      "notes": "Reply to Instagram DM via Facebook Graph API"
+    },
+    {
+      "parameters": {
+        "resource": "comment",
+        "operation": "reply",
+        "objectId": "={{ $json.post_id }}",
+        "message": "={{ $json.response }}",
+        "commentId": "={{ $json.comment_id }}"
+      },
+      "name": "Reply to Facebook/Instagram Comment",
+      "type": "n8n-nodes-base.facebookGraphApi",
+      "typeVersion": 1,
+      "position": [680, 1100],
+      "credentials": {
+        "facebookGraphApi": {
+          "id": "YOUR_FACEBOOK_CREDENTIAL_ID",
+          "name": "Facebook Graph API"
+        }
+      },
+      "notes": "Reply to comments on Facebook/Instagram posts"
+    },
+    {
+      "parameters": {
+        "content": "## Social Media Engagement Workflow\n\n✅ Receive DMs and comments via webhook\n✅ AI generates appropriate response\n✅ Auto-reply to Instagram DMs\n✅ Auto-reply to Facebook/Instagram comments\n\n**Features:**\n- AI-powered responses\n- Platform-aware replies\n- Sales inquiry detection\n- Support question handling\n\n**Triggers:**\n- Instagram DMs (via Facebook Graph API)\n- Facebook Comments\n- Instagram Comments\n- TikTok Comments (manual review recommended)",
+        "height": 340,
+        "width": 320
+      },
+      "name": "Sticky Note - Social Engagement",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [900, 1000],
+      "notes": "Social media engagement workflow summary"
+    },
+    {
+      "parameters": {
+        "path": "whatsapp-webhook",
+        "responseMode": "lastNode",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "name": "WhatsApp Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 1450],
+      "webhookId": "whatsapp-inbound",
+      "notes": "Receive WhatsApp messages from customers"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://graph.facebook.com/v18.0/{{ $env.WHATSAPP_PHONE_NUMBER_ID }}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.WHATSAPP_ACCESS_TOKEN }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "messaging_product",
+              "value": "whatsapp"
+            },
+            {
+              "name": "to",
+              "value": "={{ $json.from }}"
+            },
+            {
+              "name": "type",
+              "value": "template"
+            },
+            {
+              "name": "template",
+              "value": "={{ { name: 'product_promo', language: { code: 'en' }, components: [{ type: 'body', parameters: [{ type: 'text', text: $json.customer_name }] }] } }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Send WhatsApp Promo Template",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [460, 1400],
+      "notes": "Send promotional message template via WhatsApp Business API"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://graph.facebook.com/v18.0/{{ $env.WHATSAPP_PHONE_NUMBER_ID }}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.WHATSAPP_ACCESS_TOKEN }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "messaging_product",
+              "value": "whatsapp"
+            },
+            {
+              "name": "to",
+              "value": "={{ $json.to }}"
+            },
+            {
+              "name": "type",
+              "value": "image"
+            },
+            {
+              "name": "image",
+              "value": "={{ { link: $json.image_url, caption: $json.caption } }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Send WhatsApp Product Image",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [460, 1500],
+      "notes": "Send product images with captions via WhatsApp"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://graph.facebook.com/v18.0/{{ $env.WHATSAPP_PHONE_NUMBER_ID }}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.WHATSAPP_ACCESS_TOKEN }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "messaging_product",
+              "value": "whatsapp"
+            },
+            {
+              "name": "to",
+              "value": "={{ $json.to }}"
+            },
+            {
+              "name": "type",
+              "value": "audio"
+            },
+            {
+              "name": "audio",
+              "value": "={{ { link: $json.audio_url } }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Send WhatsApp Audio/Product Sound",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [460, 1600],
+      "notes": "Send audio clips (product sounds, voice notes) via WhatsApp"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://graph.facebook.com/v18.0/{{ $env.WHATSAPP_PHONE_NUMBER_ID }}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.WHATSAPP_ACCESS_TOKEN }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "messaging_product",
+              "value": "whatsapp"
+            },
+            {
+              "name": "to",
+              "value": "={{ $json.to }}"
+            },
+            {
+              "name": "type",
+              "value": "document"
+            },
+            {
+              "name": "document",
+              "value": "={{ { link: $json.document_url, caption: $json.caption, filename: $json.filename } }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Send WhatsApp Product Specs (PDF)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [460, 1700],
+      "notes": "Send product specification PDFs via WhatsApp"
+    },
+    {
+      "parameters": {
+        "content": "## WhatsApp Business API Workflow\n\n✅ Receive messages via webhook\n✅ Send promotional templates\n✅ Send product images\n✅ Send audio clips (product sounds)\n✅ Send product spec PDFs\n\n**WhatsApp Business API Features:**\n- Template messages (pre-approved)\n- Media messages (images, audio, documents)\n- Interactive messages (buttons, lists)\n- Quick replies\n\n**Setup Required:**\n- Meta Business Account\n- WhatsApp Business API access\n- Phone number verification\n- Message template approval\n\n**Credentials:**\n- WhatsApp Access Token\n- Phone Number ID\n- Business Account ID",
+        "height": 360,
+        "width": 320
+      },
+      "name": "Sticky Note - WhatsApp Flow",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [680, 1400],
+      "notes": "WhatsApp Business API workflow summary"
+    },
+    {
+      "parameters": {
+        "triggerTimes": {
+          "item": [
+            {
+              "mode": "everyDay",
+              "hour": 9,
+              "minute": 0
+            }
+          ]
+        }
+      },
+      "name": "Daily Promo Schedule",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [240, 2000],
+      "notes": "Schedule daily promotional messages"
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://us-central1-freeflow-media.cloudfunctions.net/getWhatsAppPromos",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Fetch Daily Promos",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [460, 2000],
+      "notes": "Get scheduled promotional content from Firebase"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://graph.facebook.com/v18.0/{{ $env.WHATSAPP_PHONE_NUMBER_ID }}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.WHATSAPP_ACCESS_TOKEN }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "messaging_product",
+              "value": "whatsapp"
+            },
+            {
+              "name": "to",
+              "value": "={{ $json.customer_phone }}"
+            },
+            {
+              "name": "type",
+              "value": "template"
+            },
+            {
+              "name": "template",
+              "value": "={{ { name: $json.template_name, language: { code: 'en' }, components: $json.template_variables } }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Send Scheduled WhatsApp Promo",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [680, 2000],
+      "notes": "Send scheduled promotional messages to customer list"
+    },
+    {
+      "parameters": {
+        "content": "## Complete Automation Overview\n\n**Workflows:**\n1. Lead Processing (Webhook → Sheets → Notifications → Email)\n2. Social Media Posting (Scheduled → Instagram/Facebook/TikTok)\n3. Social Media Engagement (DMs/Comments → AI Reply → Auto-respond)\n4. WhatsApp Business (Inbound → Templates/Images/Audio/Docs)\n5. Daily Promo Schedule (Scheduled → WhatsApp Broadcast)\n\n**Platforms Integrated:**\n- Slack, Discord, Telegram, Email (notifications)\n- Instagram, Facebook, TikTok (social posting)\n- WhatsApp Business API (messaging)\n- Google Sheets (CRM backup)\n- Firebase (data storage)\n- Google Gemini (AI responses)\n\n**Credentials Required:**\n- Google Sheets OAuth\n- Facebook Graph API\n- TikTok Business API\n- WhatsApp Business API\n- Google Gemini API\n- Slack/Discord/Telegram webhooks\n- SendGrid (email)",
+        "height": 380,
+        "width": 300
+      },
+      "name": "Sticky Note - Complete Overview",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [240, 200],
+      "notes": "Complete automation system overview"
     }
   ],
   "connections": {
-    "Website Form (Webhook)": {
+    "Website Form Webhook": {
       "main": [
         [
           {
-            "node": "Save to Google Sheets",
+            "node": "Backup to Google Sheets",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Save to Google Sheets": {
+    "Backup to Google Sheets": {
       "main": [
         [
           {
-            "node": "Google Gemini (AI Email Writer)",
+            "node": "Multi-Platform Notification (Slack/Discord/Telegram/Email)",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Google Gemini (AI Email Writer)": {
+    "Multi-Platform Notification (Slack/Discord/Telegram/Email)": {
       "main": [
         [
           {
-            "node": "Send Outreach Email",
+            "node": "Send Confirmation Email",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Send Outreach Email": {
+    "Send Confirmation Email": {
       "main": [
         [
           {
-            "node": "Notify Team (Slack/Telegram)",
+            "node": "AI Email Generator",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Email Generator": {
+      "main": [
+        [
+          {
+            "node": "AI Email via Firebase",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Social Media Post Schedule": {
+      "main": [
+        [
+          {
+            "node": "Fetch Scheduled Posts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Scheduled Posts": {
+      "main": [
+        [
+          {
+            "node": "Post to Instagram",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Post to Facebook",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Post to TikTok",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Social Media Inbox Webhook": {
+      "main": [
+        [
+          {
+            "node": "AI Response Generator",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Response Generator": {
+      "main": [
+        [
+          {
+            "node": "Reply to Instagram DM",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Reply to Facebook/Instagram Comment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "WhatsApp Webhook": {
+      "main": [
+        [
+          {
+            "node": "Send WhatsApp Promo Template",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Send WhatsApp Product Image",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Send WhatsApp Audio/Product Sound",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Send WhatsApp Product Specs (PDF)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Daily Promo Schedule": {
+      "main": [
+        [
+          {
+            "node": "Fetch Daily Promos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Daily Promos": {
+      "main": [
+        [
+          {
+            "node": "Send Scheduled WhatsApp Promo",
             "type": "main",
             "index": 0
           }
@@ -104,6 +864,45 @@
       ]
     }
   },
-  "active": false,
-  "settings": {}
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "error-handling-workflow",
+    "saveManualExecutions": true,
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveExecutionProgress": true,
+    "executionTimeout": 300,
+    "timezone": "Africa/Johannesburg"
+  },
+  "tags": [
+    {
+      "id": "1",
+      "name": "lead-generation"
+    },
+    {
+      "id": "2",
+      "name": "email-automation"
+    },
+    {
+      "id": "3",
+      "name": "ai-powered"
+    },
+    {
+      "id": "4",
+      "name": "social-media"
+    },
+    {
+      "id": "5",
+      "name": "whatsapp-business"
+    },
+    {
+      "id": "6",
+      "name": "multi-platform"
+    }
+  ],
+  "meta": {
+    "templateCredsSetupCompleted": false,
+    "instanceId": "freeflow-media-n8n"
+  }
 }

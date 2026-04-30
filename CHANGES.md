@@ -1,4 +1,4 @@
-# 🎉 What's Changed - FreeFlow Media
+# 🎉 What's Changed - Drift Studio
 
 ## ✅ All Fake Data Removed
 

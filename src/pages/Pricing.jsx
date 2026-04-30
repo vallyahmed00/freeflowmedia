@@ -1,13 +1,15 @@
 import { motion, AnimatePresence } from 'framer-motion';
 import { useState } from 'react';
-import { Check } from 'lucide-react';
+import { Check, Repeat } from 'lucide-react';
 import ContactModal from '../components/ContactModal';
+import { useCurrency } from '../context/CurrencyContext';
 
 const packages = [
   {
     id: 'starter',
     name: 'Ignite',
-    price: '$1,500 / R25,000',
+    priceUSD: 1500,
+    priceZAR: 25000,
     subtitle: 'Perfect for emerging brands',
     features: ['Local SEO Optimization', 'Social Media Management (2 Platforms)', 'Monthly Analytics Report', 'Basic Content Creation'],
     gradient: 'linear-gradient(135deg, #18181B, #27272A)'
@@ -15,7 +17,8 @@ const packages = [
   {
     id: 'growth',
     name: 'Momentum',
-    price: '$3,500 / R60,000',
+    priceUSD: 3500,
+    priceZAR: 60000,
     subtitle: 'The standard for scaling',
     features: ['Comprehensive National SEO', 'PPC Ad Management (Up to $10k spend)', 'Advanced Content Marketing', 'Weekly Strategy Calls', 'Custom Graphics'],
     gradient: 'linear-gradient(135deg, rgba(147, 51, 234, 0.1), rgba(168, 85, 247, 0.2))',
@@ -24,7 +27,8 @@ const packages = [
   {
     id: 'enterprise',
     name: 'Apex',
-    price: '$7,000+ / R120k+',
+    priceUSD: 7000,
+    priceZAR: 120000,
     subtitle: 'Dominance requires power',
     features: ['Full-Suite Omni-Channel Marketing', 'Dedicated Strategy Team', 'Advanced Conversion Tracking', 'Custom Video Production', 'Priority 24/7 Support'],
     gradient: 'linear-gradient(135deg, #18181B, #27272A)'
@@ -34,6 +38,12 @@ const packages = [
 export default function Pricing() {
   const [activeTab, setActiveTab] = useState(packages[1].id);
   const [isContactOpen, setIsContactOpen] = useState(false);
+  const { currency, toggleCurrency, getSymbol } = useCurrency();
+
+  const getPrice = (pkg) => {
+    const amount = currency === 'USD' ? pkg.priceUSD : pkg.priceZAR;
+    return `${getSymbol()}${amount.toLocaleString()}`;
+  };
 
   return (
     <motion.div
@@ -43,7 +53,28 @@ export default function Pricing() {
     >
       <div className="container" style={{ paddingTop: '8rem', paddingBottom: '4rem', textAlign: 'center' }}>
         <h1 style={{ marginBottom: '1rem' }}>Transparent <span className="gradient-text">Pricing</span></h1>
-        <p style={{ color: 'var(--text-muted)', marginBottom: '3rem', fontSize: '1.2rem' }}>Invest in growth, not just agency retainers.</p>
+        <p style={{ color: 'var(--text-muted)', marginBottom: '1.5rem', fontSize: '1.2rem' }}>Invest in growth, not just agency retainers.</p>
+
+        {/* Currency Toggle */}
+        <button
+          onClick={toggleCurrency}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '0.5rem',
+            background: 'rgba(255,255,255,0.05)',
+            border: '1px solid rgba(255,255,255,0.1)',
+            borderRadius: '99px',
+            padding: '0.5rem 1.5rem',
+            color: 'white',
+            cursor: 'pointer',
+            marginBottom: '2rem',
+            fontSize: '0.9rem'
+          }}
+        >
+          <Repeat size={16} />
+          Switch to {currency === 'ZAR' ? 'USD ($)' : 'ZAR (R)'}
+        </button>
 
         {/* Animated Tabs */}
         <div className="tabs-container" style={{ display: 'flex', justifyContent: 'center', gap: '1rem', marginBottom: '3rem' }}>
@@ -106,9 +137,9 @@ export default function Pricing() {
                     MOST POPULAR
                   </div>
                 )}
-                <h2 style={{ fontSize: '2rem', marginBottom: '0.5rem', lineHeight: 1.2 }}>{pkg.price}<span style={{ fontSize: '1rem', color: 'var(--text-muted)' }}>/mo</span></h2>
+                <h2 style={{ fontSize: '2rem', marginBottom: '0.5rem', lineHeight: 1.2 }}>{getPrice(pkg)}<span style={{ fontSize: '1rem', color: 'var(--text-muted)' }}>/mo</span></h2>
                 <p style={{ color: 'var(--text-muted)', marginBottom: '2rem' }}>{pkg.subtitle}</p>
-                
+
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginBottom: '2.5rem' }}>
                   {pkg.features.map((feature, i) => (
                     <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>

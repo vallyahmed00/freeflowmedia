@@ -134,16 +134,26 @@ const PostCard = ({ post, caption, pb, statusStyle }) => {
 
   return (
     <div style={{ padding: '1rem', background: 'rgba(255,255,255,0.03)', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.06)' }}>
+      {post.imageUrl && (
+        <img
+          src={post.imageUrl}
+          alt={`Post visual - day ${post.day || ''}`}
+          style={{
+            width: '100%',
+            borderRadius: '8px',
+            objectFit: 'cover',
+            maxHeight: '220px',
+            marginBottom: '0.75rem',
+            display: 'block',
+          }}
+          loading="lazy"
+        />
+      )}
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem' }}>
         {/* Platform badge */}
         <span style={{ padding: '5px 10px', borderRadius: '8px', fontSize: '0.72rem', fontWeight: 700, background: pb.bg, color: pb.color, flexShrink: 0, marginTop: '2px' }}>{pb.label}</span>
 
         <div style={{ flex: 1, minWidth: 0 }}>
-          {/* Image thumbnail if available */}
-          {post.imageUrl && (
-            <img src={post.imageUrl} alt="Post visual" style={{ width: '100%', maxHeight: '160px', objectFit: 'cover', borderRadius: '6px', marginBottom: '0.5rem' }} />
-          )}
-
           {/* Caption */}
           <p style={{ fontSize: '0.9rem', lineHeight: '1.55', margin: '0 0 0.25rem', color: 'var(--text-main)', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
             {expanded || !isLong ? caption : caption.slice(0, 120) + '…'}

@@ -21,7 +21,13 @@ const MarketingGenerator = lazy(() => import('./pages/MarketingGenerator'));
 const PriceComparison = lazy(() => import('./pages/PriceComparison'));
 const NotFound = lazy(() => import('./pages/NotFound'));
 const ClientPortal = lazy(() => import('./pages/ClientPortal'));
+const ClientOnboarding = lazy(() => import('./pages/ClientOnboarding'));
+const ContentBriefSubmission = lazy(() => import('./pages/ContentBriefSubmission'));
 const Admin = lazy(() => import('./pages/Admin'));
+const PipelineAdmin = lazy(() => import('./pages/PipelineAdmin'));
+const XeroSettings = lazy(() => import('./pages/XeroSettings'));
+const TestingGuide = lazy(() => import('./pages/TestingGuide'));
+const Guides = lazy(() => import('./pages/Guides'));
 
 // Loading component
 const PageLoader = () => (
@@ -84,8 +90,14 @@ const AppContent = () => {
             <Route path="/generate" element={<Generator />} />
             <Route path="/marketing-generator" element={<MarketingGenerator />} />
             <Route path="/price-comparison" element={<PriceComparison />} />
+            <Route path="/onboarding" element={<ClientOnboarding />} />
+            <Route path="/submit-brief" element={<ContentBriefSubmission />} />
             <Route path="/client-portal" element={<ClientPortal />} />
             <Route path="/admin" element={<Admin />} />
+            <Route path="/admin/pipeline" element={<PipelineAdmin />} />
+            <Route path="/admin/xero" element={<XeroSettings />} />
+            <Route path="/testing-guide" element={<TestingGuide />} />
+            <Route path="/guides" element={<Suspense fallback={<PageLoader />}><Guides /></Suspense>} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </Suspense>

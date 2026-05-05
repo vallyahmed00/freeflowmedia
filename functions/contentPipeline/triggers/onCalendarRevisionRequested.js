@@ -4,6 +4,7 @@ const admin = require('firebase-admin');
 const crypto = require('crypto');
 const { generateContentCalendar } = require('../services/aiService');
 const { sendCalendarReviewEmail } = require('../services/resendEmailService');
+const { updateProfileOnRevision } = require('../services/brandDnaService');
 
 const db = admin.firestore();
 
@@ -51,6 +52,10 @@ exports.onCalendarRevisionRequested = onDocumentUpdated({
 
     const briefData = briefSnap.data();
     const clientData = clientSnap.data();
+
+    // Update Brand DNA profile with revision feedback (non-blocking)
+    updateProfileOnRevision(clientId, clientData.name || briefData.businessName, clientFeedback)
+      .catch(err => logger.warn('Brand DNA update failed:', err.message));
 
     // Re-generate calendar, injecting client feedback into the prompt params
     const aiParams = {

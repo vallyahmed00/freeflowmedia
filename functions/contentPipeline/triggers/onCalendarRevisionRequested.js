@@ -4,7 +4,8 @@ const admin = require('firebase-admin');
 const crypto = require('crypto');
 const { generateContentCalendar } = require('../services/aiService');
 const { sendCalendarReviewEmail } = require('../services/resendEmailService');
-const { updateProfileOnRevision } = require('../services/brandDnaService');
+const { updateProfileOnRevision, getProfile } = require('../services/brandDnaService');
+const { generateImagesForCalendar } = require('../services/imageGenService');
 
 const db = admin.firestore();
 
@@ -85,9 +86,24 @@ exports.onCalendarRevisionRequested = onDocumentUpdated({
       previewPosts = revisedCalendar.posts.slice(0, 3);
     }
 
+    // Generate images for the revised calendar
+    let calendarWithImages = revisedCalendar;
+    try {
+      const rawPosts = Array.isArray(revisedCalendar)
+        ? revisedCalendar
+        : (revisedCalendar?.posts || []);
+      const brandProfile = await getProfile(clientId);
+      const postsWithImages = await generateImagesForCalendar(rawPosts, clientId, calendarId, brandProfile);
+      calendarWithImages = Array.isArray(revisedCalendar)
+        ? postsWithImages
+        : { ...revisedCalendar, posts: postsWithImages };
+    } catch (imgErr) {
+      logger.warn('Image generation skipped on revision:', imgErr.message);
+    }
+
     // Update the calendar document with the revised content
     await event.data.after.ref.update({
-      calendarData: revisedCalendar,
+      calendarData: calendarWithImages,
       status: 'awaiting_approval',
       approvalToken: newToken,
       approvalLink: newApprovalLink,

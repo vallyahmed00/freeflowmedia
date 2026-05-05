@@ -5,6 +5,8 @@ const crypto = require('crypto');
 const { generateContentCalendar } = require('../services/aiService');
 const { reviewCalendar } = require('../services/brandSafetyService');
 const { sendCalendarReviewEmail } = require('../services/resendEmailService');
+const { generateImagesForCalendar } = require('../services/imageGenService');
+const { getProfile } = require('../services/brandDnaService');
 
 // Retrieve the initialized admin db instance
 const db = admin.firestore();
@@ -67,11 +69,28 @@ exports.onContentBriefSubmitted = onDocumentCreated({
     const approvalLink = `https://us-central1-freeflow-media.cloudfunctions.net/approveContent/${approvalToken}`;
 
     // 5 & 7. Save generated calendar to ContentCalendar collection with status "awaiting_approval"
+    // Pre-generate the calendar document ID so we can use it for storage paths
     const calendarRef = db.collection('contentCalendar').doc();
+
+    // Generate images for each post (non-blocking on failure)
+    let calendarWithImages = generatedCalendar;
+    try {
+      const rawPosts = Array.isArray(generatedCalendar)
+        ? generatedCalendar
+        : (generatedCalendar?.posts || []);
+      const brandProfile = await getProfile(clientId);
+      const postsWithImages = await generateImagesForCalendar(rawPosts, clientId, calendarRef.id, brandProfile);
+      calendarWithImages = Array.isArray(generatedCalendar)
+        ? postsWithImages
+        : { ...generatedCalendar, posts: postsWithImages };
+    } catch (imgErr) {
+      logger.warn('Image generation skipped:', imgErr.message);
+    }
+
     await calendarRef.set({
         briefId: briefId,
         clientId: clientId,
-        calendarData: generatedCalendar,
+        calendarData: calendarWithImages,
         status: 'awaiting_approval',
         approvalToken: approvalToken,
         approvalLink: approvalLink,

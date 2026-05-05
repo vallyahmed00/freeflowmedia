@@ -80,6 +80,7 @@ app.get('/:token', async (req, res) => {
     const visual = post.visualDescription || post.visual || 'N/A';
     const hashtags = post.hashtags || '';
     const date = post.date || post.scheduledDate || `Day ${i + 1}`;
+    const imageUrl = post.imageUrl || null;
 
     let platformIcon = '📱';
     if (platform.toLowerCase().includes('instagram')) platformIcon = '📸';
@@ -93,6 +94,12 @@ app.get('/:token', async (req, res) => {
           <span class="text-gray-400 text-sm bg-gray-900 px-3 py-1 rounded-full">${date}</span>
         </div>
         <div class="space-y-3">
+          ${imageUrl ? `
+          <div>
+            <img src="${imageUrl}" alt="AI-generated visual for day ${i + 1}"
+              style="width:100%;border-radius:8px;object-fit:cover;max-height:300px;margin-bottom:0.5rem;"
+              loading="lazy" />
+          </div>` : ''}
           <div>
             <h4 class="text-gray-500 text-xs uppercase tracking-wider font-bold mb-1">Caption / Content</h4>
             <p class="text-gray-200 text-sm">${content}</p>

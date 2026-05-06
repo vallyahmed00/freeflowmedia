@@ -28,6 +28,7 @@ const PipelineAdmin = lazy(() => import('./pages/PipelineAdmin'));
 const XeroSettings = lazy(() => import('./pages/XeroSettings'));
 const TestingGuide = lazy(() => import('./pages/TestingGuide'));
 const Guides = lazy(() => import('./pages/Guides'));
+const Leads = lazy(() => import('./pages/Leads'));
 
 // Loading component
 const PageLoader = () => (
@@ -86,7 +87,7 @@ const AppContent = () => {
             <Route path="/work" element={<Work />} />
             <Route path="/pricing" element={<Pricing />} />
             <Route path="/automation" element={<Automation />} />
-            <Route path="/leads" element={<Generator />} />
+            <Route path="/leads" element={<Leads />} />
             <Route path="/generate" element={<Generator />} />
             <Route path="/marketing-generator" element={<MarketingGenerator />} />
             <Route path="/price-comparison" element={<PriceComparison />} />

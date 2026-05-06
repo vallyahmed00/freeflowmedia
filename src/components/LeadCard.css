@@ -2,6 +2,7 @@
   padding: 1.25rem;
   cursor: pointer;
   transition: all 0.3s ease;
+  position: relative;
 }
 
 .lead-card:hover {
@@ -9,6 +10,69 @@
   border-color: rgba(147, 51, 234, 0.3);
   box-shadow: 0 10px 30px rgba(147, 51, 234, 0.15);
 }
+
+.lead-card--selected {
+  border-color: rgba(147, 51, 234, 0.5) !important;
+  box-shadow: 0 0 0 2px rgba(147, 51, 234, 0.3) !important;
+}
+
+/* ── Checkbox ─────────────────────────────────────────────── */
+
+.lead-card-checkbox {
+  position: absolute;
+  top: 0.75rem;
+  left: 0.75rem;
+  z-index: 2;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  cursor: pointer;
+}
+
+.lead-card:hover .lead-card-checkbox,
+.lead-card--selected .lead-card-checkbox {
+  opacity: 1;
+}
+
+.lead-card-checkbox input[type='checkbox'] {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.lead-card-checkbox-mark {
+  display: block;
+  width: 18px;
+  height: 18px;
+  border: 2px solid rgba(147, 51, 234, 0.6);
+  border-radius: 4px;
+  background: rgba(18, 18, 18, 0.9);
+  transition: all 0.15s ease;
+}
+
+.lead-card-checkbox input:checked + .lead-card-checkbox-mark {
+  background: #9333EA;
+  border-color: #9333EA;
+}
+
+.lead-card-checkbox-mark::after {
+  content: '';
+  display: block;
+  width: 4px;
+  height: 8px;
+  border: 2px solid white;
+  border-top: none;
+  border-left: none;
+  transform: rotate(45deg) translate(2px, -1px);
+  opacity: 0;
+  transition: opacity 0.1s ease;
+}
+
+.lead-card-checkbox input:checked + .lead-card-checkbox-mark::after {
+  opacity: 1;
+}
+
+/* ── Header ─────────────────────────────────────────────────── */
 
 .lead-card-header {
   display: flex;
@@ -24,7 +88,7 @@
 }
 
 .lead-card-title h3 {
-  font-size: 1.1rem;
+  font-size: 1.05rem;
   font-weight: 600;
   color: var(--text-main);
   margin: 0;
@@ -41,20 +105,47 @@
   width: fit-content;
 }
 
-.lead-card-menu {
-  background: transparent;
-  border: none;
-  color: var(--text-muted);
-  cursor: pointer;
-  padding: 0.25rem;
-  border-radius: 4px;
-  transition: all 0.2s ease;
+/* ── Quick-contact buttons ──────────────────────────────────── */
+
+.lead-card-actions {
+  display: flex;
+  gap: 0.35rem;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  flex-shrink: 0;
 }
 
-.lead-card-menu:hover {
-  background: rgba(255, 255, 255, 0.1);
-  color: var(--text-main);
+.lead-card:hover .lead-card-actions {
+  opacity: 1;
 }
+
+.lead-quick-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-muted);
+  text-decoration: none;
+  transition: all 0.2s ease;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.lead-quick-btn:hover {
+  background: rgba(147, 51, 234, 0.2);
+  color: #9333EA;
+  border-color: rgba(147, 51, 234, 0.4);
+}
+
+.lead-quick-btn--wa:hover {
+  background: rgba(37, 211, 102, 0.15);
+  color: #25D366;
+  border-color: rgba(37, 211, 102, 0.4);
+}
+
+/* ── Body ───────────────────────────────────────────────────── */
 
 .lead-card-industry {
   font-size: 0.85rem;
@@ -101,6 +192,8 @@
   fill: var(--accent-color);
 }
 
+/* ── Footer ─────────────────────────────────────────────────── */
+
 .lead-card-footer {
   display: flex;
   justify-content: space-between;
@@ -119,8 +212,8 @@
   border-radius: 4px;
 }
 
-.lead-description-preview {
-  font-size: 0.75rem;
+.lead-age {
+  font-size: 0.72rem;
   color: var(--text-muted);
   font-style: italic;
 }

@@ -17,10 +17,14 @@ const LeadFormModal = ({ isOpen, onClose, onSaved, editLead = null }) => {
     country: 'South Africa',
     description: '',
     source: 'manual',
+    followUpDate: '',
   });
 
   useEffect(() => {
     if (editLead) {
+      const fud = editLead.followUpDate?.toDate
+        ? editLead.followUpDate.toDate().toISOString().split('T')[0]
+        : editLead.followUpDate || '';
       setFormData({
         business_name: editLead.business_name || '',
         contact_name: editLead.contact_name || '',
@@ -32,6 +36,7 @@ const LeadFormModal = ({ isOpen, onClose, onSaved, editLead = null }) => {
         country: editLead.country || 'South Africa',
         description: editLead.description || '',
         source: editLead.source || 'manual',
+        followUpDate: fud,
       });
     } else {
       setFormData({
@@ -45,6 +50,7 @@ const LeadFormModal = ({ isOpen, onClose, onSaved, editLead = null }) => {
         country: 'South Africa',
         description: '',
         source: 'manual',
+        followUpDate: '',
       });
     }
   }, [editLead, isOpen]);
@@ -179,6 +185,15 @@ const LeadFormModal = ({ isOpen, onClose, onSaved, editLead = null }) => {
               onChange={(e) => setFormData({ ...formData, description: e.target.value })}
               placeholder="Notes about this lead..."
               rows={3}
+            />
+          </div>
+
+          <div className="form-group">
+            <label>Follow-up Date</label>
+            <input
+              type="date"
+              value={formData.followUpDate}
+              onChange={(e) => setFormData({ ...formData, followUpDate: e.target.value })}
             />
           </div>
         </div>

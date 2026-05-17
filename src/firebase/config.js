@@ -6,13 +6,13 @@ import { getFunctions } from 'firebase/functions';
 import { getAnalytics } from 'firebase/analytics';
 
 const firebaseConfig = {
-  apiKey: "AIzaSyAoFDXNs8eRwPTn56T-LMIvsFZJFPA_oZw",
-  authDomain: "freeflow-media.firebaseapp.com",
-  projectId: "freeflow-media",
-  storageBucket: "freeflow-media.firebasestorage.app",
-  messagingSenderId: "103426838649",
-  appId: "1:103426838649:web:f232200d2a33772a8ec4a8",
-  measurementId: "G-QTH4Z9EYKD"
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID,
+  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID,
 };
 
 const app = initializeApp(firebaseConfig);
@@ -23,6 +23,10 @@ export const storage = getStorage(app);
 export const functions = getFunctions(app);
 export const analytics = getAnalytics(app);
 
-export const APIFY_API_KEY = "apify_api_g8pXbduM9sSQvz6TJ0WQnde9UEcUzT170xJW";
+export const APIFY_API_KEY = import.meta.env.VITE_APIFY_API_KEY || "";
 export const GENERATE_STRATEGY_URL = "https://us-central1-freeflow-media.cloudfunctions.net/generateStrategy";
+export const GENERATE_AI_LEADS_URL = "https://us-central1-freeflow-media.cloudfunctions.net/generateAILeads";
+export const GENERATE_OUTREACH_SCRIPT_URL = "https://us-central1-freeflow-media.cloudfunctions.net/generateOutreachScript";
+export const SEND_LEAD_ALERT_URL = "https://us-central1-freeflow-media.cloudfunctions.net/sendLeadAlert";
+export const GENERATE_OUTREACH_EMAIL_URL = "https://us-central1-freeflow-media.cloudfunctions.net/generateOutreachEmail";
 export default app;

@@ -1583,3 +1583,139 @@ exports.sendLeadAlert = onRequest(
     });
   }
 );
+
+exports.processLeadStreams = onSchedule(
+  {
+    schedule: "0 6 * * 1",
+    timeZone: "Africa/Johannesburg",
+    secrets: [
+      "GEMINI_API_KEY",
+      "DISCORD_WEBHOOK_URL",
+      "TELEGRAM_BOT_TOKEN",
+      "TELEGRAM_CHAT_ID",
+      "TWILIO_ACCOUNT_SID",
+      "TWILIO_AUTH_TOKEN",
+      "TWILIO_WHATSAPP_FROM",
+    ],
+  },
+  async () => {
+    const snapshot = await db
+      .collection("leadStreamSubscriptions")
+      .where("active", "==", true)
+      .get();
+
+    if (snapshot.empty) {
+      logger.info("processLeadStreams: no active subscriptions");
+      return;
+    }
+
+    const generateForSubscription = async (sub) => {
+      const {
+        niche = "SaaS",
+        location = "Johannesburg, SA",
+        companySize = "Any",
+        clientName,
+        whatsapp,
+        discordWebhook,
+        telegramChatId,
+      } = sub;
+
+      const safeTelegramChatId = telegramChatId != null ? String(telegramChatId) : null;
+
+      const prompt = `Generate exactly 5 fictional but plausible business leads for a sales professional targeting the ${String(niche).slice(0, 100)} industry in ${String(location).slice(0, 100)}.
+${companySize !== "Any" ? `Company size filter: ${String(companySize).slice(0, 50)} employees.` : ""}
+Return ONLY a valid JSON array with exactly 5 objects with keys: name, role, company, painPoint, signal, score (50-99), temperature (hot/warm/cold), estimatedBudget, bestContactTime.
+No markdown, no explanation, ONLY the JSON array.`;
+
+      const ai = getAI();
+      const response = await ai.models.generateContent({
+        model: "gemini-1.5-flash",
+        contents: [{ role: "user", parts: [{ text: prompt }] }],
+      });
+      const text = response.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+      if (!text) throw new Error("Empty response from Gemini for Lead Stream");
+      const jsonMatch = text.match(/\[[\s\S]*\]/);
+      if (!jsonMatch) throw new Error("No JSON array in Lead Stream Gemini response");
+      const leads = JSON.parse(jsonMatch[0]);
+
+      for (const lead of leads) {
+        await db.collection("leads").add({
+          ...lead,
+          source: "lead_stream",
+          clientName: String(clientName ?? "").slice(0, 100),
+          niche,
+          location,
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+      }
+
+      const formatWeeklyMessage = (ls) => {
+        const header = `🎯 Weekly Leads — ${niche} in ${location}\n\n`;
+        const items = ls
+          .map(
+            (l, i) =>
+              `${i + 1}. ${String(l.name ?? "").slice(0, 100)} @ ${String(l.company ?? "").slice(0, 100)}\n` +
+              `   Role: ${String(l.role ?? "").slice(0, 100)}\n` +
+              `   Pain: ${String(l.painPoint ?? "").slice(0, 200)}\n` +
+              `   Score: ${Number(l.score) || 0}/100 | ${String(l.temperature ?? "").toUpperCase()}\n` +
+              `   Budget: ${String(l.estimatedBudget ?? "").slice(0, 100)}\n` +
+              `   Best time: ${String(l.bestContactTime ?? "").slice(0, 100)}`
+          )
+          .join("\n\n");
+        return header + items + "\n\nPowered by Drift Studio Lead Stream\ndriftstudio.co.za";
+      };
+
+      const message = formatWeeklyMessage(leads);
+
+      if (whatsapp) {
+        try {
+          const sid = process.env.TWILIO_ACCOUNT_SID;
+          const token = process.env.TWILIO_AUTH_TOKEN;
+          const from = process.env.TWILIO_WHATSAPP_FROM;
+          const to = String(whatsapp).replace(/[^+\d]/g, "").slice(0, 20);
+          const body = encodeURIComponent(message);
+          await axios.post(
+            `https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`,
+            `From=whatsapp:${from}&To=whatsapp:${to}&Body=${body}`,
+            {
+              auth: { username: sid, password: token },
+              headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            }
+          );
+        } catch (e) {
+          logger.error(`Lead Stream WhatsApp failed for ${clientName}:`, e.message);
+        }
+      }
+
+      if (discordWebhook) {
+        try {
+          await axios.post(String(discordWebhook).slice(0, 500), { content: message });
+        } catch (e) {
+          logger.error(`Lead Stream Discord failed for ${clientName}:`, e.message);
+        }
+      }
+
+      if (safeTelegramChatId) {
+        try {
+          const token = process.env.TELEGRAM_BOT_TOKEN;
+          await axios.post(`https://api.telegram.org/bot${token}/sendMessage`, {
+            chat_id: safeTelegramChatId,
+            text: message,
+          });
+        } catch (e) {
+          logger.error(`Lead Stream Telegram failed for ${clientName}:`, e.message);
+        }
+      }
+    };
+
+    for (const doc of snapshot.docs) {
+      try {
+        await generateForSubscription(doc.data());
+        await doc.ref.update({ lastRunAt: admin.firestore.FieldValue.serverTimestamp() });
+        logger.info(`Lead Stream processed for: ${doc.data().clientName}`);
+      } catch (e) {
+        logger.error(`Lead Stream failed for doc ${doc.id}:`, e.message);
+      }
+    }
+  }
+);

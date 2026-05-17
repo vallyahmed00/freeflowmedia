@@ -1339,7 +1339,9 @@ exports.generateAILeads = onRequest(
   async (req, res) => {
     cors(req, res, async () => {
       if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
-      const { niche = "SaaS", location = "Johannesburg, SA", companySize = "Any" } = req.body;
+      const niche = String(req.body.niche ?? "SaaS").slice(0, 100);
+      const location = String(req.body.location ?? "Johannesburg, SA").slice(0, 100);
+      const companySize = String(req.body.companySize ?? "Any").slice(0, 50);
 
       const prompt = `Generate exactly 5 fictional but plausible business leads for a sales professional targeting the ${niche} industry in ${location}.
 ${companySize !== "Any" ? `Company size filter: ${companySize} employees.` : ""}
@@ -1370,7 +1372,8 @@ Rules:
           model: "gemini-1.5-flash",
           contents: [{ role: "user", parts: [{ text: prompt }] }],
         });
-        const text = response.candidates[0].content.parts[0].text.trim();
+        const text = response.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+        if (!text) throw new Error("Empty or safety-filtered response from Gemini");
         const jsonMatch = text.match(/\[[\s\S]*\]/);
         if (!jsonMatch) throw new Error("No JSON array found in Gemini response");
         const leads = JSON.parse(jsonMatch[0]);
@@ -1392,7 +1395,7 @@ Rules:
         return res.status(200).json({ leads: saved });
       } catch (error) {
         logger.error("generateAILeads error:", error);
-        return res.status(500).json({ error: "Failed to generate leads", details: error.message });
+        return res.status(500).json({ error: "Failed to generate leads" });
       }
     });
   }

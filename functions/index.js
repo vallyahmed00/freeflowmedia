@@ -1400,3 +1400,63 @@ Rules:
     });
   }
 );
+
+exports.generateOutreachScript = onRequest(
+  { secrets: ["GEMINI_API_KEY"], cors: true, timeoutSeconds: 60 },
+  async (req, res) => {
+    cors(req, res, async () => {
+      if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+      const { lead } = req.body;
+      if (!lead || typeof lead !== "object") return res.status(400).json({ error: "lead object is required" });
+
+      const name = String(lead.name ?? "").slice(0, 100);
+      const role = String(lead.role ?? "").slice(0, 100);
+      const company = String(lead.company ?? "").slice(0, 100);
+      const painPoint = String(lead.painPoint ?? "").slice(0, 200);
+      const signal = String(lead.signal ?? "").slice(0, 200);
+      const estimatedBudget = String(lead.estimatedBudget ?? "").slice(0, 100);
+
+      const prompt = `Write a phone sales script for reaching out to ${name}, ${role} at ${company}.
+
+Their main pain point: ${painPoint}
+Buying signal: ${signal}
+Estimated budget: ${estimatedBudget}
+
+Return ONLY a valid JSON object with these exact keys. Each value is a short script segment (2-5 sentences):
+{
+  "opener": "Natural cold-call opening that references the signal without being creepy",
+  "rapport": "1-2 lines to build quick connection. Ask one open question",
+  "painAgitation": "Agitate the pain point. Make them feel it. No corporate language",
+  "solutionPitch": "Pitch Drift Studio's solution to their specific pain. Concrete, brief",
+  "objectionPrice": "Handle price objection naturally. Reference ROI or risk of inaction",
+  "objectionNotInterested": "Handle 'not interested' with a disarming pivot",
+  "close": "Ask for the next step. Specific, low-pressure ask"
+}
+
+Style rules:
+- Use contractions throughout (I'm, we've, don't, it's, you're)
+- Include [PAUSE] and [LISTEN] cues inline where natural
+- Mix short punchy lines with longer ones
+- Zero corporate buzzwords (no 'synergy', 'leverage', 'solutions')
+- Sound like a real human conversation, not a robot
+- No markdown, no explanation, ONLY the JSON object`;
+
+      try {
+        const ai = getAI();
+        const response = await ai.models.generateContent({
+          model: "gemini-1.5-flash",
+          contents: [{ role: "user", parts: [{ text: prompt }] }],
+        });
+        const text = response.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+        if (!text) throw new Error("Empty or safety-filtered response from Gemini");
+        const jsonMatch = text.match(/\{[\s\S]*\}/);
+        if (!jsonMatch) throw new Error("No JSON object found in response");
+        const script = JSON.parse(jsonMatch[0]);
+        return res.status(200).json({ script });
+      } catch (error) {
+        logger.error("generateOutreachScript error:", error);
+        return res.status(500).json({ error: "Failed to generate script" });
+      }
+    });
+  }
+);

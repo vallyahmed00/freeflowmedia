@@ -24,12 +24,59 @@ const axios = require("axios");
 
 admin.initializeApp();
 const db = admin.firestore();
-const ai = new GoogleGenAI({});
+
+// ==================== AI RESPONSE CACHE ====================
+
+const AI_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+
+const getCacheKey = (inputs) => {
+  const str = JSON.stringify(inputs);
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = (Math.imul(31, hash) + str.charCodeAt(i)) | 0;
+  }
+  return `cache_${Math.abs(hash)}`;
+};
+
+const getCachedResult = async (collection, key) => {
+  const doc = await db.collection(collection).doc(key).get();
+  if (!doc.exists) return null;
+  const { cachedAt, result } = doc.data();
+  if (Date.now() - cachedAt.toMillis() > AI_CACHE_TTL_MS) return null;
+  return result;
+};
+
+const setCachedResult = async (collection, key, result) => {
+  await db.collection(collection).doc(key).set({
+    result,
+    cachedAt: admin.firestore.FieldValue.serverTimestamp(),
+  });
+};
+
+const parseJsonResponse = (text, context) => {
+  try {
+    return JSON.parse(text);
+  } catch (err) {
+    throw new Error(`Failed to parse AI JSON response for ${context}`, { cause: err });
+  }
+};
+
+/**
+ * Lazy-load Gemini AI to ensure secrets are available.
+ * Must be used inside function handlers where 'secrets' are defined.
+ */
+const getAI = () => {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    throw new Error("GEMINI_API_KEY is not set in environment variables.");
+  }
+  return new GoogleGenAI(apiKey);
+};
 
 // ==================== 1. STRATEGY GENERATION ====================
 
 exports.generateStrategy = onRequest(
-  { secrets: ["GEMINI_API_KEY"], cors: true, timeoutSeconds: 120 },
+  { secrets: ["GEMINI_API_KEY", "PROMO_CODES"], cors: true, timeoutSeconds: 120 },
   async (req, res) => {
     cors(req, res, async () => {
       if (req.method !== "POST") {
@@ -44,14 +91,36 @@ exports.generateStrategy = onRequest(
         contentCategories,
         inStoreSpecials,
         userEmail,
-        userName
+        userName,
+        marketingMaterialsLink,
+        uploadedFileUrls,
+        promoCode,
       } = req.body;
 
       if (!businessType || !targetAudience) {
         return res.status(400).json({ error: "Missing required fields" });
       }
 
+      // Server-side promo code validation — code never shipped in client bundle
+      if (promoCode !== undefined && promoCode !== null) {
+        const extraCodes = (process.env.PROMO_CODES || "")
+          .split(",")
+          .map(c => c.trim().toLowerCase())
+          .filter(Boolean);
+        const validCodes = ["family", ...extraCodes];
+        if (!validCodes.includes(promoCode.toLowerCase())) {
+          return res.status(400).json({ error: "Invalid promo code" });
+        }
+      }
+
       logger.info(`Generating strategy for: ${businessType}`);
+
+      const cacheKey = getCacheKey({ businessType, targetAudience, businessCountry, contentCategories });
+      const cached = await getCachedResult("strategiesCache", cacheKey);
+      if (cached) {
+        logger.info("Returning cached strategy");
+        return res.status(200).json({ data: cached });
+      }
 
       try {
         const masterPrompt = `
@@ -62,8 +131,12 @@ Client Details:
 - Target Audience: ${targetAudience}
 - Location: ${businessCountry || "Global"}
 - Current Efforts: ${currentMarketing || "None"}
-- Desired Content Categories: ${contentCategories || "Social Media, Blog"}
+- Desired Content Channels: ${contentCategories || "Social Media, Blog"}
 - In-Store Specials/Focus: ${inStoreSpecials || "None"}
+- Client Name: ${userName || "Not provided"}
+- Client Email: ${userEmail || "Not provided"}
+${marketingMaterialsLink ? `- Existing Brand Materials: ${marketingMaterialsLink} (factor in their brand identity and style)` : ""}
+${uploadedFileUrls?.length ? `- Uploaded Brand Assets: ${uploadedFileUrls.length} file(s) provided — assume consistent brand style and quality.` : ""}
 
 Generate a comprehensive roadmap structured EXACTLY as the following JSON. Do not include markdown tags, just the raw JSON:
 
@@ -91,32 +164,23 @@ Generate a comprehensive roadmap structured EXACTLY as the following JSON. Do no
 }
 `;
 
-        const response = await ai.models.generateContent({
-          model: "gemini-2.5-pro",
+        const response = await getAI().models.generateContent({
+          model: "gemini-1.5-pro",
           contents: masterPrompt,
           config: { responseMimeType: "application/json" }
         });
 
-        const strategyJson = JSON.parse(response.text);
+        const strategyJson = parseJsonResponse(response.text, "strategy");
 
-        // Save to Firestore for history
-        const strategyRecord = {
-          businessName: businessType,
-          targetAudience,
-          userEmail: userEmail || null,
-          userName: userName || null,
-          strategy: strategyJson,
-          generatedAt: admin.firestore.FieldValue.serverTimestamp(),
-          status: "generated"
-        };
+        await setCachedResult("strategiesCache", cacheKey, strategyJson);
 
-        await db.collection("strategies").add(strategyRecord);
-
+        // IMPORTANT: strategy persistence is handled by the client via saveStrategy(...)
+        // This endpoint returns strategy JSON only to avoid duplicate Firestore documents.
         return res.status(200).json({ data: strategyJson });
 
       } catch (error) {
         logger.error("Generation failed:", error);
-        return res.status(500).json({ error: "Generation failed." });
+        return res.status(500).json({ error: "Generation failed", detail: error.message });
       }
     });
   }
@@ -133,15 +197,22 @@ Generate a comprehensive roadmap structured EXACTLY as the following JSON. Do no
  * - Email (via SendGrid)
  */
 exports.notifyNewLead = onRequest(
-  { 
-    secrets: ["SLACK_WEBHOOK_URL", "DISCORD_WEBHOOK_URL", "TEAMS_WEBHOOK_URL", "TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID", "SENDGRID_API_KEY"], 
-    cors: true, 
-    timeoutSeconds: 30 
-  },
+  { cors: true, timeoutSeconds: 30 },
   async (req, res) => {
     cors(req, res, async () => {
       if (req.method !== "POST") {
         return res.status(405).json({ error: "Method not allowed" });
+      }
+
+      const authHeader = req.headers.authorization;
+      const idToken = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
+      if (!idToken) return res.status(401).json({ error: 'Unauthorized' });
+      try {
+        const decoded = await admin.auth().verifyIdToken(idToken);
+        const adminDoc = await admin.firestore().collection('admins').doc(decoded.uid).get();
+        if (!adminDoc.exists) return res.status(403).json({ error: 'Forbidden' });
+      } catch {
+        return res.status(401).json({ error: 'Invalid token' });
       }
 
       const { lead, platforms } = req.body;
@@ -243,8 +314,8 @@ exports.notifyNewLead = onRequest(
           sgMail.setApiKey(process.env.SENDGRID_API_KEY);
 
           const msg = {
-            to: "admin@freeflowmedia.com", // Replace with your admin email
-            from: "notifications@freeflowmedia.com",
+            to: "admin@driftstudio.co.za", // Replace with your admin email
+            from: "notifications@driftstudio.co.za",
             subject: `🎯 New Lead: ${lead.business_name}`,
             html: `
               <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
@@ -256,7 +327,7 @@ exports.notifyNewLead = onRequest(
                   <p><strong>Source:</strong> ${lead.source}</p>
                   <p><strong>Message:</strong> ${lead.notes || "No message"}</p>
                 </div>
-                <p style="color: #666;">View in admin panel: <a href="https://freeflowmedia.com/admin">Admin Panel</a></p>
+                <p style="color: #666;">View in admin panel: <a href="https://www.driftstudio.co.za/admin">Admin Panel</a></p>
               </div>
             `
           };
@@ -281,7 +352,7 @@ exports.notifyNewLead = onRequest(
 // ==================== 3. AUTOMATED EMAIL SEQUENCE ====================
 
 exports.sendLeadConfirmationEmail = onRequest(
-  { secrets: ["SENDGRID_API_KEY"], cors: true, timeoutSeconds: 30 },
+  { cors: true, timeoutSeconds: 30 },
   async (req, res) => {
     cors(req, res, async () => {
       if (req.method !== "POST") {
@@ -300,7 +371,7 @@ exports.sendLeadConfirmationEmail = onRequest(
 
         const msg = {
           to: lead.email,
-          from: "contact@freeflowmedia.com",
+          from: "contact@driftstudio.co.za",
           subject: `Thanks for reaching out, ${lead.business_name}!`,
           html: `
             <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
@@ -365,8 +436,8 @@ The email should:
 Write only the email body, no subject line or greetings needed.
 `;
 
-        const response = await ai.models.generateContent({
-          model: "gemini-2.5-pro",
+        const response = await getAI().models.generateContent({
+          model: "gemini-1.5-pro",
           contents: emailPrompt
         });
 
@@ -382,7 +453,7 @@ Write only the email body, no subject line or greetings needed.
 // ==================== 5. STRATEGY DELIVERY EMAIL ====================
 
 exports.deliverStrategyViaEmail = onRequest(
-  { secrets: ["SENDGRID_API_KEY", "GEMINI_API_KEY"], cors: true, timeoutSeconds: 60 },
+  { secrets: ["GEMINI_API_KEY"], cors: true, timeoutSeconds: 60 },
   async (req, res) => {
     cors(req, res, async () => {
       if (req.method !== "POST") {
@@ -408,14 +479,14 @@ ${JSON.stringify(strategy, null, 2)}
 Keep it under 100 words. Focus on the key insights and value delivered.
 `;
 
-        const summaryResponse = await ai.models.generateContent({
-          model: "gemini-2.5-pro",
+        const summaryResponse = await getAI().models.generateContent({
+          model: "gemini-1.5-pro",
           contents: summaryPrompt
         });
 
         const msg = {
           to: userEmail,
-          from: "contact@freeflowmedia.com",
+          from: "contact@driftstudio.co.za",
           subject: `Your Marketing Strategy for ${businessName} is Ready! 🚀`,
           html: `
             <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
@@ -435,14 +506,14 @@ Keep it under 100 words. Focus on the key insights and value delivered.
               <p><strong>Summary:</strong></p>
               <p>${summaryResponse.text}</p>
 
-              <a href="https://freeflowmedia.com/marketing-generator" 
+              <a href="https://www.driftstudio.co.za/marketing-generator" 
                  style="display: inline-block; background: #9333EA; color: white; padding: 12px 30px; text-decoration: none; border-radius: 8px; margin: 20px 0;">
                 View Your Strategy
               </a>
 
               <p style="margin-top: 30px; padding-top: 20px; border-top: 2px solid #E5E7EB; color: #666;">
                 Questions? Reply to this email or visit our website.<br>
-                <strong>Drift Studio</strong> | https://freeflowmedia.com
+                <strong>Drift Studio</strong> | https://www.driftstudio.co.za
               </p>
             </div>
           `
@@ -465,7 +536,7 @@ Keep it under 100 words. Focus on the key insights and value delivered.
  * Uses HTML-to-PDF conversion via external service or base64 encoding
  */
 exports.deliverStrategyWithPDF = onRequest(
-  { secrets: ["SENDGRID_API_KEY", "GEMINI_API_KEY"], cors: true, timeoutSeconds: 120 },
+  { secrets: ["GEMINI_API_KEY"], cors: true, timeoutSeconds: 120 },
   async (req, res) => {
     cors(req, res, async () => {
       if (req.method !== "POST") {
@@ -491,8 +562,8 @@ ${JSON.stringify(strategy, null, 2)}
 Keep it under 100 words. Focus on the key insights and value delivered.
 `;
 
-        const summaryResponse = await ai.models.generateContent({
-          model: "gemini-2.5-pro",
+        const summaryResponse = await getAI().models.generateContent({
+          model: "gemini-1.5-pro",
           contents: summaryPrompt
         });
 
@@ -545,7 +616,7 @@ Keep it under 100 words. Focus on the key insights and value delivered.
 
   <div style="margin-top: 50px; padding-top: 20px; border-top: 2px solid #E5E7EB; text-align: center; color: #999;">
     <p>Generated by Drift Studio - Content Ideator</p>
-    <p>https://freeflowmedia.com</p>
+    <p>https://www.driftstudio.co.za</p>
   </div>
 </body>
 </html>
@@ -565,7 +636,7 @@ Keep it under 100 words. Focus on the key insights and value delivered.
 
         const msg = {
           to: userEmail,
-          from: "contact@freeflowmedia.com",
+          from: "contact@driftstudio.co.za",
           subject: `📄 Your Marketing Strategy PDF for ${businessName}`,
           html: `
             <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
@@ -587,7 +658,7 @@ Keep it under 100 words. Focus on the key insights and value delivered.
               <p style="background: #FEF3C7; padding: 15px; border-radius: 8px;">${summaryResponse.text}</p>
 
               <div style="text-align: center; margin: 30px 0;">
-                <a href="https://freeflowmedia.com/marketing-generator" 
+                <a href="https://www.driftstudio.co.za/marketing-generator" 
                    style="display: inline-block; background: #9333EA; color: white; padding: 15px 40px; text-decoration: none; border-radius: 8px; font-size: 18px; font-weight: bold;">
                   📥 Download Your Strategy PDF
                 </a>
@@ -605,8 +676,8 @@ Keep it under 100 words. Focus on the key insights and value delivered.
 
               <p style="margin-top: 30px; padding-top: 20px; border-top: 2px solid #E5E7EB; color: #666;">
                 Need help implementing this strategy? We offer full-service marketing packages.<br>
-                <a href="https://freeflowmedia.com" style="color: #9333EA;">Learn More →</a><br><br>
-                <strong>Drift Studio</strong> | https://freeflowmedia.com
+                <a href="https://www.driftstudio.co.za" style="color: #9333EA;">Learn More →</a><br><br>
+                <strong>Drift Studio</strong> | https://www.driftstudio.co.za
               </p>
             </div>
           `
@@ -635,8 +706,11 @@ Keep it under 100 words. Focus on the key insights and value delivered.
 // ==================== 6. WEEKLY CONTENT DIGEST (SCHEDULED) ====================
 
 exports.weeklyContentDigest = onSchedule(
-  "every monday 09:00",
-  { timeZone: "Africa/Johannesburg" },
+  {
+    schedule: "every monday 09:00",
+    timeZone: "Africa/Johannesburg",
+    secrets: ["GEMINI_API_KEY"]
+  },
   async (event) => {
     logger.info("Running weekly content digest...");
 
@@ -675,13 +749,13 @@ Format as JSON array:
 `;
 
         try {
-          const response = await ai.models.generateContent({
-            model: "gemini-2.5-pro",
+          const response = await getAI().models.generateContent({
+            model: "gemini-1.5-pro",
             contents: contentPrompt,
             config: { responseMimeType: "application/json" }
           });
 
-          const contentIdeas = JSON.parse(response.text);
+          const contentIdeas = parseJsonResponse(response.text, "content ideas");
 
           // Save to lead's record
           await db.collection("leads").doc(lead.id).update({
@@ -708,7 +782,7 @@ Format as JSON array:
 // ==================== 7. TESTIMONIAL REQUEST AUTOMATION ====================
 
 exports.requestTestimonial = onRequest(
-  { secrets: ["SENDGRID_API_KEY"], cors: true, timeoutSeconds: 30 },
+  { cors: true, timeoutSeconds: 30 },
   async (req, res) => {
     cors(req, res, async () => {
       if (req.method !== "POST") {
@@ -727,7 +801,7 @@ exports.requestTestimonial = onRequest(
 
         const msg = {
           to: lead.email,
-          from: "contact@freeflowmedia.com",
+          from: "contact@driftstudio.co.za",
           subject: `How did we do, ${lead.business_name}?`,
           html: `
             <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
@@ -740,7 +814,7 @@ exports.requestTestimonial = onRequest(
               </div>
 
               <p style="margin: 20px 0;">
-                <a href="https://freeflowmedia.com/testimonial?lead=${lead.id}" 
+                <a href="https://www.driftstudio.co.za/testimonial?lead=${lead.id}" 
                    style="display: inline-block; background: #22c55e; color: white; padding: 12px 30px; text-decoration: none; border-radius: 8px;">
                   Share Your Experience
                 </a>
@@ -831,19 +905,19 @@ exports.handlePaymentWebhook = onRequest(
 // ==================== 9. ABANDONED CART RECOVERY ====================
 
 exports.checkAbandonedPayments = onSchedule(
-  "every 2 hours",
-  { timeZone: "Africa/Johannesburg" },
-  async (event) => {
+  { schedule: "every 2 hours", timeZone: "Africa/Johannesburg" },
+  async () => {
     logger.info("Checking for abandoned payments...");
 
     try {
-      // Find payments created 1 hour ago that are still pending
       const oneHourAgo = new Date();
       oneHourAgo.setHours(oneHourAgo.getHours() - 1);
 
+      // Fix: compare against Firestore Timestamp, not ISO string
       const abandonedSnapshot = await db.collection("payments")
         .where("status", "==", "pending")
-        .where("createdAt", "<=", oneHourAgo.toISOString())
+        .where("recoveryEmailSent", "!=", true)
+        .where("createdAt", "<=", admin.firestore.Timestamp.fromDate(oneHourAgo))
         .get();
 
       if (abandonedSnapshot.empty) {
@@ -851,8 +925,15 @@ exports.checkAbandonedPayments = onSchedule(
         return { success: true, count: 0 };
       }
 
-      const sgMail = require("@sendgrid/mail");
-      sgMail.setApiKey(process.env.SENDGRID_API_KEY);
+      const { Resend } = require("resend");
+      const resend = new Resend(process.env.RESEND_API_KEY);
+      const fromEmail = process.env.RESEND_FROM_EMAIL;
+
+      // Recovery promo code from env — add RECOVERY_PROMO to PROMO_CODES secret
+      const recoveryCode = (process.env.PROMO_CODES || "family")
+        .split(",")
+        .map(c => c.trim())
+        .find(c => c.toLowerCase().startsWith("recover")) || "RECOVERY10";
 
       let recoveryCount = 0;
 
@@ -862,41 +943,32 @@ exports.checkAbandonedPayments = onSchedule(
         if (!payment.userEmail) continue;
 
         try {
-          const msg = {
+          await resend.emails.send({
+            from: `Drift Studio <${fromEmail}>`,
             to: payment.userEmail,
-            from: "contact@freeflowmedia.com",
-            subject: "Complete your marketing strategy - 10% OFF! 🎁",
+            subject: "Complete your marketing strategy — 10% OFF",
             html: `
-              <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-                <h2 style="color: #9333EA;">Don't miss out! 🚀</h2>
+              <div style="font-family:sans-serif;background:#111827;color:#f3f4f6;max-width:600px;margin:0 auto;padding:32px;border-radius:12px;">
+                <h2 style="color:#c084fc;">Don't leave your strategy behind!</h2>
                 <p>Hi ${payment.userName || "there"},</p>
-                <p>We noticed you started generating your marketing strategy but didn't complete the payment.</p>
-                
-                <div style="background: #FEF3C7; padding: 20px; border-left: 4px solid #F59E0B; margin: 20px 0;">
-                  <h3 style="margin-top: 0;">Special Offer:</h3>
-                  <p>Complete your purchase in the next 24 hours and get <strong>10% OFF</strong>!</p>
-                  <p>Use code: <strong style="background: #F59E0B; color: white; padding: 4px 12px; border-radius: 4px;">COMPLETE10</strong></p>
+                <p>You were minutes away from your AI-generated marketing strategy. Complete your order in the next 24 hours and get <strong>10% off</strong>.</p>
+                <div style="background:rgba(245,158,11,0.1);border-left:4px solid #f59e0b;padding:16px;margin:24px 0;border-radius:4px;">
+                  <p style="margin:0;font-weight:700;">Your discount code:</p>
+                  <p style="margin:8px 0 0;font-size:1.4rem;letter-spacing:2px;color:#f59e0b;">${recoveryCode}</p>
                 </div>
-
-                <p style="text-align: center; margin: 30px 0;">
-                  <a href="https://freeflowmedia.com/marketing-generator" 
-                     style="display: inline-block; background: #9333EA; color: white; padding: 15px 40px; text-decoration: none; border-radius: 8px; font-size: 18px;">
-                    Complete Your Strategy
+                <p style="text-align:center;margin:32px 0;">
+                  <a href="https://www.driftstudio.co.za/marketing-generator"
+                     style="background:#9333ea;color:#fff;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:700;display:inline-block;">
+                    Complete My Strategy
                   </a>
                 </p>
-
-                <p style="margin-top: 30px; padding-top: 20px; border-top: 2px solid #E5E7EB; color: #666;">
-                  This offer expires in 24 hours.<br>
-                  <strong>Drift Studio</strong>
-                </p>
+                <p style="color:#6b7280;font-size:0.85rem;text-align:center;">Offer expires in 24 hours · Drift Studio</p>
               </div>
             `
-          };
+          });
 
-          await sgMail.send(msg);
           recoveryCount++;
 
-          // Update payment status
           await db.collection("payments").doc(doc.id).update({
             recoveryEmailSent: true,
             recoveryEmailSentAt: admin.firestore.FieldValue.serverTimestamp()
@@ -920,7 +992,7 @@ exports.checkAbandonedPayments = onSchedule(
 // ==================== 10. LEAD ENRICHMENT VIA APIFY ====================
 
 exports.enrichLeadData = onRequest(
-  { secrets: ["APIFY_API_KEY"], cors: true, timeoutSeconds: 120 },
+  { cors: true, timeoutSeconds: 120 },
   async (req, res) => {
     cors(req, res, async () => {
       if (req.method !== "POST") {
@@ -1093,6 +1165,234 @@ exports.n8nWebhookHandler = onRequest(
       } catch (error) {
         logger.error("n8n webhook processing failed:", error);
         return res.status(500).json({ error: "Webhook processing failed" });
+      }
+    });
+  }
+);
+
+// ==================== 13. PRICE COMPARISON ====================
+
+const priceComparison = require('./priceComparison');
+exports.generatePriceComparison = priceComparison.generatePriceComparison;
+exports.updateCompetitorPricing = priceComparison.updateCompetitorPricing;
+
+// ==================== 14. AUTOMATED CONTENT PIPELINE ====================
+
+const onClientCreated = require('./contentPipeline/triggers/onClientCreated');
+exports.onClientCreatedFunction = onClientCreated.onClientCreated;
+
+const onContentBriefSubmitted = require('./contentPipeline/triggers/onContentBriefSubmitted');
+exports.onContentBriefSubmittedFunction = onContentBriefSubmitted.onContentBriefSubmitted;
+
+const approveContentEndpoint = require('./contentPipeline/endpoints/approveContent');
+exports.approveContent = approveContentEndpoint.approveContent;
+
+const scheduleSocialPosts = require('./contentPipeline/triggers/scheduleSocialPosts');
+exports.queueApprovedPostsFunction = scheduleSocialPosts.queueApprovedPosts;
+exports.processPostQueueFunction = scheduleSocialPosts.processPostQueue;
+
+// Revision loop — re-generates calendar when client requests changes
+const onCalendarRevisionRequested = require('./contentPipeline/triggers/onCalendarRevisionRequested');
+exports.onCalendarRevisionRequested = onCalendarRevisionRequested.onCalendarRevisionRequested;
+
+// Drip task runner — processes Day 1/3/7/14 client touchpoints
+exports.processDripTasks = onClientCreated.processDripTasks;
+
+// ==================== 15. XERO ACCOUNTING INTEGRATION ====================
+
+const xero = require('./xero');
+exports.xeroConnect = xero.xeroConnect;
+exports.xeroCallback = xero.xeroCallback;
+exports.createXeroInvoice = xero.createXeroInvoice;
+exports.syncXeroPayments = xero.syncXeroPayments;
+
+
+// ==================== 16. LEAD GENERATION (Apify) ====================
+
+const generateLeads = require('./generateLeads');
+exports.generateLeads = generateLeads.generateLeads;
+
+// ==================== 18. COLD OUTREACH MODULE (TypeScript) ====================
+// Requires: cd functions && npm run build  (compiles TS → lib/)
+// Handlers are lazy-loaded inside each onRequest so they don't run at init time.
+
+exports.outreach_researchProspect = onRequest(
+  { secrets: ['GEMINI_API_KEY'], cors: true, timeoutSeconds: 60 },
+  async (req, res) => {
+    const { researchProspectHandler } = require('./lib/outreach/index');
+    return researchProspectHandler(req, res);
+  }
+);
+
+exports.outreach_generateEmail = onRequest(
+  { secrets: ['GEMINI_API_KEY'], cors: true, timeoutSeconds: 60 },
+  async (req, res) => {
+    const { generateEmailHandler } = require('./lib/outreach/index');
+    return generateEmailHandler(req, res);
+  }
+);
+
+exports.outreach_buildSequence = onRequest(
+  { secrets: ['GEMINI_API_KEY'], cors: true, timeoutSeconds: 120 },
+  async (req, res) => {
+    const { buildSequenceHandler } = require('./lib/outreach/index');
+    return buildSequenceHandler(req, res);
+  }
+);
+
+exports.outreach_generateReport = onRequest(
+  { cors: true, timeoutSeconds: 60 },
+  async (req, res) => {
+    const { generateReportHandler } = require('./lib/outreach/index');
+    return generateReportHandler(req, res);
+  }
+);
+
+// ==================== 17. COLD OUTREACH EMAIL GENERATOR ====================
+
+exports.generateColdOutreachEmail = onRequest(
+  { secrets: ["GEMINI_API_KEY"], cors: true, timeoutSeconds: 60 },
+  async (req, res) => {
+    cors(req, res, async () => {
+      if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+
+      const { business_name, industry, location, website, description } = req.body;
+      if (!business_name) return res.status(400).json({ error: "business_name is required" });
+
+      try {
+        const ai = getAI();
+        const prompt = `You are a business development specialist at Drift Studio, a Cape Town-based digital marketing agency.
+
+Write a short, personalised cold outreach email to the following potential client. The tone should be warm, professional, and concise — NOT salesy. No bullet lists. Max 180 words.
+
+Lead Details:
+- Business: ${business_name}
+- Industry: ${industry || "N/A"}
+- Location: ${location || "South Africa"}
+- Website: ${website || "N/A"}
+- About: ${description || "N/A"}
+
+The email should:
+1. Open with a genuine observation about their business (not generic flattery)
+2. Briefly explain what Drift Studio does (AI-powered content, social media management, brand growth)
+3. Ask one simple question to start a conversation
+4. Sign off from Ahmed Vally, Drift Studio
+
+Return ONLY the email body text, starting from the greeting. No subject line. No extra commentary.`;
+
+        const response = await ai.models.generateContent({
+          model: "gemini-2.0-flash",
+          contents: prompt,
+        });
+
+        const email = response.text?.trim() || "";
+        return res.status(200).json({ email });
+      } catch (err) {
+        logger.error("generateOutreachEmail error:", err.message);
+        return res.status(500).json({ error: "Failed to generate email", detail: err.message });
+      }
+    });
+  }
+);
+
+// ==================== 19. POST IMAGE GENERATION (Imagen 3) ====================
+
+exports.generatePostImage = onRequest(
+  { cors: true, timeoutSeconds: 90, memory: "512MiB" },
+  async (req, res) => {
+    cors(req, res, async () => {
+      if (req.method !== "POST") {
+        return res.status(405).json({ error: "Method not allowed" });
+      }
+
+      const { prompt, postIndex } = req.body;
+      if (!prompt) {
+        return res.status(400).json({ error: "prompt is required" });
+      }
+
+      try {
+        const { generateImagesForCalendar } = require("./contentPipeline/services/imageGenService");
+
+        const results = await generateImagesForCalendar(
+          [{ visual: prompt, platform: "instagram", day: postIndex ?? 1 }],
+          "strategy-previews",
+          `preview-${Date.now()}`,
+          null
+        );
+
+        const imageUrl = results[0]?.imageUrl || null;
+        if (!imageUrl) throw new Error("Image generation returned no result");
+
+        return res.status(200).json({ imageUrl });
+      } catch (err) {
+        logger.error("generatePostImage error:", err.message);
+        return res.status(500).json({ error: "Image generation failed", detail: err.message });
+      }
+    });
+  }
+);
+
+// ==================== LEAD INTELLIGENCE PLATFORM ====================
+
+exports.generateAILeads = onRequest(
+  { secrets: ["GEMINI_API_KEY"], cors: true, timeoutSeconds: 60 },
+  async (req, res) => {
+    cors(req, res, async () => {
+      if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+      const { niche = "SaaS", location = "Johannesburg, SA", companySize = "Any" } = req.body;
+
+      const prompt = `Generate exactly 5 fictional but plausible business leads for a sales professional targeting the ${niche} industry in ${location}.
+${companySize !== "Any" ? `Company size filter: ${companySize} employees.` : ""}
+
+Return ONLY a valid JSON array with exactly 5 objects. Each object must have these exact keys:
+{
+  "name": "Full Name",
+  "role": "Job Title",
+  "company": "Company Name",
+  "painPoint": "One specific business pain point (max 15 words)",
+  "signal": "One buying signal or trigger event (max 15 words)",
+  "score": <integer 50-99>,
+  "temperature": "hot" | "warm" | "cold",
+  "estimatedBudget": "e.g. R15k–R30k/month",
+  "bestContactTime": "e.g. Tuesday 10am–12pm"
+}
+
+Rules:
+- Names must sound like real South African or international professionals
+- Pain points must be specific to ${niche}
+- Signals must be actionable buying triggers (hiring, funding, rebranding, etc.)
+- Score 85+ = hot, 70–84 = warm, 50–69 = cold (must be consistent with temperature)
+- No markdown, no explanation, ONLY the JSON array`;
+
+      try {
+        const ai = getAI();
+        const response = await ai.models.generateContent({
+          model: "gemini-1.5-flash",
+          contents: [{ role: "user", parts: [{ text: prompt }] }],
+        });
+        const text = response.candidates[0].content.parts[0].text.trim();
+        const jsonMatch = text.match(/\[[\s\S]*\]/);
+        if (!jsonMatch) throw new Error("No JSON array found in Gemini response");
+        const leads = JSON.parse(jsonMatch[0]);
+
+        const saved = [];
+        for (const lead of leads) {
+          const docRef = await db.collection("leads").add({
+            ...lead,
+            source: "ai_hunter",
+            niche,
+            location,
+            companySize,
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          });
+          saved.push({ id: docRef.id, ...lead });
+        }
+
+        logger.info(`generateAILeads: saved ${saved.length} leads for ${niche} in ${location}`);
+        return res.status(200).json({ leads: saved });
+      } catch (error) {
+        logger.error("generateAILeads error:", error);
+        return res.status(500).json({ error: "Failed to generate leads", details: error.message });
       }
     });
   }

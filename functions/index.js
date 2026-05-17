@@ -1460,3 +1460,126 @@ Style rules:
     });
   }
 );
+
+exports.sendLeadAlert = onRequest(
+  {
+    secrets: [
+      "DISCORD_WEBHOOK_URL",
+      "TELEGRAM_BOT_TOKEN",
+      "TELEGRAM_CHAT_ID",
+      "TWILIO_ACCOUNT_SID",
+      "TWILIO_AUTH_TOKEN",
+      "TWILIO_WHATSAPP_FROM",
+    ],
+    cors: true,
+    timeoutSeconds: 30,
+  },
+  async (req, res) => {
+    cors(req, res, async () => {
+      if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+      const { type, lead, leads, channels = [], niche, location } = req.body;
+
+      if (!type || !["single", "batch"].includes(type)) {
+        return res.status(400).json({ error: "type must be 'single' or 'batch'" });
+      }
+      if (!Array.isArray(channels)) {
+        return res.status(400).json({ error: "channels must be an array" });
+      }
+
+      const formatSingleLead = (l) =>
+        `🎯 *New Lead — ${String(l.company ?? "").slice(0, 100)}*\n` +
+        `👤 ${String(l.name ?? "").slice(0, 100)} | ${String(l.role ?? "").slice(0, 100)}\n` +
+        `🔥 ${String(l.temperature ?? "").toUpperCase().slice(0, 10)} | Score: ${Number(l.score) || 0}/100\n` +
+        `💢 Pain: ${String(l.painPoint ?? "").slice(0, 200)}\n` +
+        `📡 Signal: ${String(l.signal ?? "").slice(0, 200)}\n` +
+        `💰 Budget: ${String(l.estimatedBudget ?? "").slice(0, 100)}\n` +
+        `🕐 Best time: ${String(l.bestContactTime ?? "").slice(0, 100)}\n` +
+        `\n_Drift Studio Lead Hunter — driftstudio.co.za_`;
+
+      const formatBatch = (ls, n, loc) => {
+        const safeLeads = Array.isArray(ls) ? ls.slice(0, 20) : [];
+        const header = `🎯 *${safeLeads.length} New AI Leads — ${String(n ?? "General").slice(0, 100)} in ${String(loc ?? "SA").slice(0, 100)}*\n\n`;
+        const items = safeLeads
+          .map(
+            (l, i) =>
+              `*${i + 1}. ${String(l.name ?? "").slice(0, 100)} @ ${String(l.company ?? "").slice(0, 100)}*\n` +
+              `   ${String(l.role ?? "").slice(0, 100)} | ${String(l.temperature ?? "").toUpperCase()} ${Number(l.score) || 0}/100\n` +
+              `   Pain: ${String(l.painPoint ?? "").slice(0, 200)}`
+          )
+          .join("\n\n");
+        return header + items + "\n\n_Powered by Drift Studio — driftstudio.co.za_";
+      };
+
+      const message =
+        type === "batch"
+          ? formatBatch(leads, niche, location)
+          : formatSingleLead(lead || {});
+
+      const results = {};
+
+      if (channels.includes("discord")) {
+        try {
+          const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
+          if (webhookUrl) {
+            await axios.post(webhookUrl, { content: message.replace(/\*/g, "**") });
+            results.discord = "sent";
+          } else {
+            results.discord = "not_configured";
+          }
+        } catch (e) {
+          logger.error("Discord send failed:", e.message);
+          results.discord = "failed";
+        }
+      }
+
+      if (channels.includes("telegram")) {
+        try {
+          const token = process.env.TELEGRAM_BOT_TOKEN;
+          const chatId = process.env.TELEGRAM_CHAT_ID;
+          if (token && chatId) {
+            await axios.post(`https://api.telegram.org/bot${token}/sendMessage`, {
+              chat_id: chatId,
+              text: message,
+              parse_mode: "Markdown",
+            });
+            results.telegram = "sent";
+          } else {
+            results.telegram = "not_configured";
+          }
+        } catch (e) {
+          logger.error("Telegram send failed:", e.message);
+          results.telegram = "failed";
+        }
+      }
+
+      if (channels.includes("whatsapp") && req.body.whatsappTo) {
+        try {
+          const sid = process.env.TWILIO_ACCOUNT_SID;
+          const token = process.env.TWILIO_AUTH_TOKEN;
+          const from = process.env.TWILIO_WHATSAPP_FROM;
+          if (sid && token && from) {
+            const to = String(req.body.whatsappTo).replace(/[^+\d]/g, "").slice(0, 20);
+            const body = encodeURIComponent(message.replace(/\*/g, ""));
+            await axios.post(
+              `https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`,
+              `From=whatsapp:${from}&To=whatsapp:${to}&Body=${body}`,
+              {
+                auth: { username: sid, password: token },
+                headers: { "Content-Type": "application/x-www-form-urlencoded" },
+              }
+            );
+            results.whatsapp = "sent";
+          } else {
+            results.whatsapp = "not_configured";
+          }
+        } catch (e) {
+          logger.error("WhatsApp send failed:", e.message);
+          results.whatsapp = "failed";
+        }
+      }
+
+      logger.info("sendLeadAlert results:", results);
+      return res.status(200).json({ success: true, results });
+    });
+  }
+);

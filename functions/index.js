@@ -148,7 +148,10 @@ exports.contentGeneratorProxy = onRequest(
           model: "gemini-2.0-flash",
           contents: prompt,
         });
-        const output = response.text;
+        const output = response.text ?? '';
+        if (!output) {
+          return res.status(502).json({ error: "Model returned no content. Please try again." });
+        }
 
         const docRef = await db.collection("content_generations").add({
           userEmail,

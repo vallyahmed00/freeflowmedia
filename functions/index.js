@@ -73,6 +73,107 @@ const getAI = () => {
   return new GoogleGenAI(apiKey);
 };
 
+// ==================== CONTENT STUDIO HELPERS ====================
+
+const buildContentPrompt = ({ contentType, tone, brief, businessContext, targetAudience, brandVoice }) => {
+  const bv = brandVoice || {};
+  const brandSection = bv.businessName ? `
+Brand Voice Profile:
+- Business: ${bv.businessName}
+- Industry: ${bv.industry || 'Not specified'}
+- Target Audience: ${bv.targetAudience || targetAudience || 'Not specified'}
+- Brand Words: ${(bv.brandWords || []).filter(Boolean).join(', ') || 'Not specified'}
+- Core Services: ${bv.coreServices || 'Not specified'}
+- Location: ${bv.location || 'Not specified'}` : '';
+
+  return `You are an expert marketing copywriter producing ${contentType} content for a South African marketing agency client.
+${brandSection}
+${businessContext ? `Business/Brand Context: ${businessContext}` : ''}
+${targetAudience ? `Target Audience: ${targetAudience}` : ''}
+
+Content Brief:
+${brief}
+
+Tone: ${tone}
+Content Type: ${contentType}
+
+HUMANIZER RULES — apply every one:
+- No em dashes (—)
+- Never open with "I hope this finds you well" or any equivalent filler
+- No rule-of-three bullet lists
+- No sentence starting with an -ing verb
+- Mix sentence lengths: short punchy lines alongside longer flowing ones
+- Use contractions throughout (I'm, we've, don't, it's, you're)
+- No corporate buzzwords: leverage, synergy, robust, seamlessly, holistic, ecosystem
+- Single specific CTA only — never multiple asks
+- Reference the client's specific context in the very first line
+
+Write the ${contentType} now. Output ONLY the final content — no explanations, no preamble, no "Here is your..." intro.`;
+};
+
+// ==================== CONTENT STUDIO ====================
+
+exports.contentGeneratorProxy = onRequest(
+  { secrets: ["GEMINI_API_KEY"], cors: true, timeoutSeconds: 60 },
+  async (req, res) => {
+    cors(req, res, async () => {
+      if (req.method !== "POST") {
+        return res.status(405).json({ error: "Method not allowed" });
+      }
+
+      const { contentType, category, tone, brief, businessContext, targetAudience, brandVoice, userEmail } = req.body;
+
+      if (!contentType || !tone || !brief || !userEmail) {
+        return res.status(400).json({ error: "Missing required fields: contentType, tone, brief, userEmail" });
+      }
+      if (typeof brief !== "string" || brief.length > 2000) {
+        return res.status(400).json({ error: "Brief must be a string under 2000 characters" });
+      }
+      if (typeof contentType !== "string" || contentType.length > 100) {
+        return res.status(400).json({ error: "Invalid contentType" });
+      }
+
+      try {
+        const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+        const recentSnap = await db.collection("content_generations")
+          .where("userEmail", "==", userEmail)
+          .where("createdAt", ">=", admin.firestore.Timestamp.fromDate(oneHourAgo))
+          .get();
+        if (recentSnap.size >= 20) {
+          return res.status(429).json({ error: "Rate limit exceeded. Max 20 generations per hour." });
+        }
+
+        const prompt = buildContentPrompt({ contentType, tone, brief, businessContext, targetAudience, brandVoice });
+        const response = await getAI().models.generateContent({
+          model: "gemini-2.0-flash",
+          contents: prompt,
+        });
+        const output = response.text;
+
+        const docRef = await db.collection("content_generations").add({
+          userEmail,
+          contentType,
+          category: category || "General",
+          tone,
+          prompt: brief,
+          output,
+          charCount: output.length,
+          version: 1,
+          status: "draft",
+          scheduledDate: null,
+          platformVariants: null,
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+
+        return res.status(200).json({ output, generationId: docRef.id });
+      } catch (err) {
+        logger.error("contentGeneratorProxy error:", err);
+        return res.status(500).json({ error: "Generation failed. Please try again." });
+      }
+    });
+  }
+);
+
 // ==================== 1. STRATEGY GENERATION ====================
 
 exports.generateStrategy = onRequest(
@@ -114,13 +215,6 @@ exports.generateStrategy = onRequest(
       }
 
       logger.info(`Generating strategy for: ${businessType}`);
-
-      const cacheKey = getCacheKey({ businessType, targetAudience, businessCountry, contentCategories });
-      const cached = await getCachedResult("strategiesCache", cacheKey);
-      if (cached) {
-        logger.info("Returning cached strategy");
-        return res.status(200).json({ data: cached });
-      }
 
       try {
         const masterPrompt = `
@@ -165,14 +259,12 @@ Generate a comprehensive roadmap structured EXACTLY as the following JSON. Do no
 `;
 
         const response = await getAI().models.generateContent({
-          model: "gemini-1.5-pro",
+          model: "gemini-1.5-flash",
           contents: masterPrompt,
           config: { responseMimeType: "application/json" }
         });
 
         const strategyJson = parseJsonResponse(response.text, "strategy");
-
-        await setCachedResult("strategiesCache", cacheKey, strategyJson);
 
         // IMPORTANT: strategy persistence is handled by the client via saveStrategy(...)
         // This endpoint returns strategy JSON only to avoid duplicate Firestore documents.

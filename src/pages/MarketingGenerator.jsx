@@ -1,161 +1,235 @@
 import React, { useState } from 'react';
+import toast from 'react-hot-toast';
 import MarketingForm from '../components/MarketingForm';
 import PaymentGateway from '../components/PaymentGateway';
 import StrategyDashboard from '../components/StrategyDashboard';
-import { saveStrategy } from '../services/strategyService';
+import { saveStrategy, uploadPaymentProofFiles, uploadStrategyFiles } from '../services/strategyService';
 import { GENERATE_STRATEGY_URL } from '../firebase/config';
+import { getEftPaymentMetadata, getGenerationFailureMessage } from '../services/generationPolicy';
+import ContentStudio from './ContentStudio';
 import './MarketingGenerator.css';
 
+const GENERATION_TIMEOUT_MS = 110_000;
+
 const MarketingGenerator = () => {
-  // Current step: 'form', 'payment', 'generating', 'dashboard'
+  const [mode, setMode] = useState('studio');
   const [currentStep, setCurrentStep] = useState('form');
   const [formData, setFormData] = useState(null);
   const [strategyResult, setStrategyResult] = useState(null);
   const [strategyId, setStrategyId] = useState(null);
 
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [uploadedFileUrls, setUploadedFileUrls] = useState([]);
+  const [lastError, setLastError] = useState(null);
+
   const handleFormSubmit = (data) => {
+    setLastError(null);
     setFormData(data);
 
-    // Check for admin/promo bypass
-    if (data.promoCode && data.promoCode.toLowerCase() === 'family') {
-      // Bypass payment
-      generateStrategy(data);
+    if (data.promoCode?.trim()) {
+      // Send promo code to server — it will validate and reject if invalid
+      generateStrategy(data, { bypassPayment: true });
     } else {
       setCurrentStep('payment');
     }
   };
 
-  const handlePaymentSuccess = () => {
-    generateStrategy(formData);
+  const handlePaymentSuccess = (paymentDetails = {}) => {
+    if (!formData) return;
+    generateStrategy(formData, { bypassPayment: false, paymentDetails });
   };
 
-  const generateStrategy = async (data) => {
+  const generateStrategy = async (data, { bypassPayment, paymentDetails = {} }) => {
+    if (isGenerating) return;
+
+    setIsGenerating(true);
     setCurrentStep('generating');
+    setLastError(null);
+
+    // Upload files first so URLs can be included in the record.
+    // Reuse uploaded URLs from a previous attempt where possible.
+    let urlsToSend = uploadedFileUrls;
+    if ((!urlsToSend || urlsToSend.length === 0) && data.marketingMaterialsFiles?.length) {
+      try {
+        urlsToSend = await uploadStrategyFiles(data.marketingMaterialsFiles);
+        setUploadedFileUrls(urlsToSend);
+      } catch {
+        toast.error('File upload failed — continuing without uploaded assets.');
+        urlsToSend = [];
+        setUploadedFileUrls([]);
+      }
+    }
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), GENERATION_TIMEOUT_MS);
 
     try {
-      // Call Firebase Cloud Function
       const response = await fetch(GENERATE_STRATEGY_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
         body: JSON.stringify({
           businessType: data.businessType,
           targetAudience: data.targetAudience,
           businessCountry: data.businessCountry,
           currentMarketing: data.currentMarketing,
           contentCategories: data.contentCategories,
-          inStoreSpecials: data.inStoreSpecials
-        })
+          inStoreSpecials: data.inStoreSpecials,
+          userEmail: data.email,
+          userName: data.name,
+          marketingMaterialsLink: data.marketingMaterialsLink || null,
+          uploadedFileUrls: urlsToSend.length ? urlsToSend : null,
+          promoCode: data.promoCode || null,
+        }),
       });
 
+      if (response.status === 400) {
+        const err = await response.json();
+        toast.error(err.error || 'Invalid promo code. Please pay to continue.');
+        setCurrentStep('payment');
+        return;
+      }
+
       if (!response.ok) {
-        throw new Error('Failed to generate strategy');
+        throw new Error(`Server error ${response.status}`);
       }
 
       const result = await response.json();
-      setStrategyResult(result.data);
+      const strategy = result.data;
 
-      // Save to Firebase for history and analytics
-      const strategyRecord = await saveStrategy({
+      const isPromo = bypassPayment && !!data.promoCode;
+      const paymentMetadata = isPromo
+        ? { paymentStatus: 'promo', paymentAmount: 0, paymentMethod: 'promo' }
+        : getEftPaymentMetadata();
+      const paymentProofUrls = !isPromo && paymentDetails.paymentProofFiles?.length
+        ? await uploadPaymentProofFiles(paymentDetails.paymentProofFiles)
+        : [];
+      const record = await saveStrategy({
         businessName: data.businessType,
         targetAudience: data.targetAudience,
         businessCountry: data.businessCountry,
         currentMarketing: data.currentMarketing,
-        strategy: result.data,
+        userEmail: data.email,
+        userName: data.name,
+        strategy,
         marketingMaterialsLink: data.marketingMaterialsLink,
-        marketingMaterialsFiles: data.marketingMaterialsFiles,
+        uploadedFileUrls: urlsToSend,
         status: 'generated',
-        paymentStatus: data.promoCode?.toLowerCase() === 'family' ? 'paid' : 'pending',
-        paymentAmount: data.promoCode?.toLowerCase() === 'family' ? 0 : 199,
-        paymentMethod: data.promoCode?.toLowerCase() === 'family' ? 'promo' : 'yoco'
+        ...paymentMetadata,
+        paymentReference: isPromo ? '' : paymentDetails.paymentReference,
+        paymentProofUrls,
+        strategySource: 'ai',
       });
 
-      setStrategyId(strategyRecord.id);
+      setStrategyId(record.id);
+      setStrategyResult(strategy);
       setCurrentStep('dashboard');
     } catch (error) {
-      console.error('Generation error:', error);
-
-      // Fallback to mock if Firebase Function isn't set up yet
-      console.log('Using mock data (Firebase Function not available)');
-      await new Promise((resolve) => setTimeout(resolve, 2000));
-
-      const mockResult = {
-        businessName: data.businessType || "Your Business",
-        marketAnalysis: `Deep dive market analysis for ${data.businessType || 'your business'} targeting ${data.targetAudience || 'your audience'}. Identified core pain points and 3 emerging market shifts.`,
-        viralTrends: [
-          `Behind-the-scenes authentic storytelling showing a day in the life of ${data.businessType || 'your business'}.`,
-          `Value-driven micro-learning posts specifically for ${data.targetAudience || 'your audience'}.`,
-          "Interactive polls based on user pain points."
-        ],
-        marketingConcepts: [
-          { concept: "Educational Blog Post", format: "Blog", hook: `Why most ${data.businessType || 'businesses'} fail at reaching ${data.targetAudience || 'their audience'}...` },
-          { concept: "Product Demo Reel", format: "Video", hook: "See how we solved this major problem..." }
-        ],
-        instagramPosts: [
-          { visual: "High contrast, professional image demonstrating the service.", caption: `Tired of manual processes? Here is how a ${data.businessType || 'business like yours'} scales 10x. #growth` },
-          { visual: "Sleek dark mode infographic with 3 key stats.", caption: `Did you know that 80% of ${data.targetAudience || 'your audience'} struggles with this? #facts #insight` }
-        ],
-      };
-
-      setStrategyResult(mockResult);
-
-      // Save mock strategy to Firebase as well
-      try {
-        const strategyRecord = await saveStrategy({
-          businessName: data.businessType,
-          targetAudience: data.targetAudience,
-          businessCountry: data.businessCountry,
-          currentMarketing: data.currentMarketing,
-          strategy: mockResult,
-          marketingMaterialsLink: data.marketingMaterialsLink,
-          marketingMaterialsFiles: data.marketingMaterialsFiles,
-          status: 'generated',
-          paymentStatus: data.promoCode?.toLowerCase() === 'family' ? 'paid' : 'pending',
-          paymentAmount: data.promoCode?.toLowerCase() === 'family' ? 0 : 199,
-          paymentMethod: data.promoCode?.toLowerCase() === 'family' ? 'promo' : 'mock'
-        });
-        setStrategyId(strategyRecord.id);
-      } catch (saveError) {
-        console.error('Failed to save strategy:', saveError);
+      if (error?.name === 'AbortError') {
+        const msg = 'Generation timed out. You can retry without re-entering your brief.';
+        setLastError(msg);
+        toast.error(msg);
+        setCurrentStep(bypassPayment ? 'form' : 'payment');
+        return;
       }
 
-      setCurrentStep('dashboard');
+      const msg = getGenerationFailureMessage('content');
+      setLastError(msg);
+      toast.error(msg, { duration: 8000 });
+      setCurrentStep('payment');
+    } finally {
+      clearTimeout(timeout);
+      setIsGenerating(false);
     }
   };
 
+  const STEPS = [
+    { key: 'form',       label: 'Brief' },
+    { key: 'payment',    label: 'Payment' },
+    { key: 'generating', label: 'Generating' },
+    { key: 'dashboard',  label: 'Results' },
+  ];
+
+  const currentIndex = STEPS.findIndex(s => s.key === currentStep);
+
   return (
-    <div className="marketing-generator-page">
-      <div className="mg-header">
-        <h1>Content Ideator</h1>
-        <p>AI-powered marketing content ideas tailored to your business.</p>
+    <>
+      <div className="mg-mode-toggle">
+        <button className={`mg-mode-btn${mode === 'studio' ? ' active' : ''}`} onClick={() => setMode('studio')}>
+          Content Studio
+        </button>
+        <button className={`mg-mode-btn${mode === 'strategy' ? ' active' : ''}`} onClick={() => setMode('strategy')}>
+          Strategy Wizard
+        </button>
       </div>
 
-      <div className="mg-container">
-        {currentStep === 'form' && (
-          <MarketingForm onSubmit={handleFormSubmit} />
-        )}
-
-        {currentStep === 'payment' && (
-          <PaymentGateway onSuccess={handlePaymentSuccess} onBack={() => setCurrentStep('form')} />
-        )}
-
-        {currentStep === 'generating' && (
-          <div className="mg-loading">
-            <div className="loader-spinner"></div>
-            <h3>Generating your content ideas...</h3>
-            <p>Our AI is analyzing the market and crafting tailored marketing concepts for your business.</p>
+      {mode === 'studio' ? (
+        <ContentStudio />
+      ) : (
+        <div className="marketing-generator-page">
+          <div className="mg-header">
+            <h1>Content Ideator</h1>
+            <p>AI-powered marketing content ideas tailored to your business.</p>
           </div>
-        )}
 
-        {currentStep === 'dashboard' && strategyResult && (
-          <StrategyDashboard
-            data={strategyResult}
-            formData={formData}
-            strategyId={strategyId}
-            onReset={() => setCurrentStep('form')}
-          />
-        )}
-      </div>
-    </div>
+          {/* Step indicator */}
+          <div className="mg-steps">
+            {STEPS.map((step, i) => (
+              <React.Fragment key={step.key}>
+                <div className={`mg-step ${i < currentIndex ? 'mg-step--done' : ''} ${i === currentIndex ? 'mg-step--active' : ''}`}>
+                  <div className="mg-step-dot">{i < currentIndex ? '✓' : i + 1}</div>
+                  <span className="mg-step-label">{step.label}</span>
+                </div>
+                {i < STEPS.length - 1 && <div className={`mg-step-line ${i < currentIndex ? 'mg-step-line--done' : ''}`} />}
+              </React.Fragment>
+            ))}
+          </div>
+
+          <div className="mg-container">
+            {currentStep === 'form' && (
+              <MarketingForm onSubmit={handleFormSubmit} isGenerating={isGenerating} />
+            )}
+
+            {currentStep === 'payment' && (
+              <PaymentGateway onSuccess={handlePaymentSuccess} onBack={() => setCurrentStep('form')} />
+            )}
+
+            {currentStep === 'generating' && (
+              <div className="mg-loading">
+                <div className="loader-spinner"></div>
+                <h3>Generating your content ideas...</h3>
+                <p>Our AI is analysing the market and crafting tailored concepts for your business.</p>
+              </div>
+            )}
+
+            {currentStep === 'dashboard' && strategyResult && (
+              <StrategyDashboard
+                data={strategyResult}
+                formData={formData}
+                strategyId={strategyId}
+                onReset={() => setCurrentStep('form')}
+              />
+            )}
+
+            {lastError && currentStep !== 'dashboard' && (
+              <div style={{ marginTop: '1rem', textAlign: 'center' }}>
+                <p style={{ color: '#f59e0b', marginBottom: '0.75rem' }}>{lastError}</p>
+                <button
+                  className="mg-btn mg-btn-primary"
+                  onClick={() => {
+                    if (!formData) return;
+                    generateStrategy(formData, { bypassPayment: !!formData.promoCode?.trim() });
+                  }}
+                  disabled={isGenerating}
+                >
+                  Retry generation
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </>
   );
 };
 

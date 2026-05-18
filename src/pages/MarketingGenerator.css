@@ -27,6 +27,84 @@
   font-size: 1.1rem;
 }
 
+/* Step Indicator */
+.mg-steps {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  margin-bottom: 40px;
+  width: 100%;
+  max-width: 600px;
+}
+
+.mg-step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  opacity: 0.4;
+  transition: opacity 0.3s;
+}
+
+.mg-step--active,
+.mg-step--done {
+  opacity: 1;
+}
+
+.mg-step-dot {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 2px solid rgba(168, 85, 247, 0.4);
+  background: rgba(168, 85, 247, 0.08);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.5);
+  transition: all 0.3s;
+}
+
+.mg-step--active .mg-step-dot {
+  border-color: #A855F7;
+  background: rgba(168, 85, 247, 0.2);
+  color: #A855F7;
+  box-shadow: 0 0 12px rgba(168, 85, 247, 0.4);
+}
+
+.mg-step--done .mg-step-dot {
+  border-color: #A855F7;
+  background: #A855F7;
+  color: #fff;
+}
+
+.mg-step-label {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.5);
+  white-space: nowrap;
+}
+
+.mg-step--active .mg-step-label,
+.mg-step--done .mg-step-label {
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.mg-step-line {
+  flex: 1;
+  height: 2px;
+  background: rgba(168, 85, 247, 0.15);
+  margin: 0 8px;
+  margin-bottom: 22px;
+  transition: background 0.3s;
+}
+
+.mg-step-line--done {
+  background: #A855F7;
+}
+
 .mg-container {
   width: 100%;
   max-width: 900px;
@@ -102,6 +180,13 @@
   box-shadow: 0 0 0 2px rgba(168, 85, 247, 0.2);
 }
 
+.mg-field-error {
+  display: block;
+  color: #ef4444;
+  font-size: 0.78rem;
+  margin-top: 0.3rem;
+}
+
 /* Buttons */
 .mg-btn {
   display: inline-flex;
@@ -154,14 +239,6 @@
 
 .mg-btn-text:hover {
   color: #fff;
-}
-
-.yoco-btn {
-  background: #000;
-  color: #fff;
-  border: 1px solid #333;
-  width: 100%;
-  margin-top: 20px;
 }
 
 /* Payment Gateway */
@@ -217,6 +294,48 @@
 
 .bank-details p {
   margin: 5px 0;
+  color: #fff;
+}
+
+.mg-label {
+  display: block;
+  text-align: left;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  font-weight: 500;
+  margin: 16px 0 8px;
+}
+
+.mg-input,
+.mg-file-upload {
+  width: 100%;
+  padding: 12px 16px;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  color: #fff;
+  font-family: inherit;
+  font-size: 1rem;
+}
+
+.mg-input:focus {
+  outline: none;
+  border-color: #A855F7;
+  box-shadow: 0 0 0 2px rgba(168, 85, 247, 0.2);
+}
+
+.mg-file-upload {
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-bottom: 20px;
+  color: var(--text-secondary);
+}
+
+.mg-file-upload:hover {
+  border-color: rgba(168, 85, 247, 0.45);
   color: #fff;
 }
 
@@ -382,4 +501,42 @@
   .mg-grid {
     grid-template-columns: 1fr;
   }
+}
+
+/* ── Mode toggle ──────────────────────────────────────────── */
+.mg-mode-toggle {
+  position: fixed;
+  top: 76px;
+  right: 24px;
+  z-index: 200;
+  display: flex;
+  gap: 4px;
+  background: rgba(15, 15, 25, 0.85);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  padding: 4px;
+}
+
+.mg-mode-btn {
+  padding: 6px 16px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-secondary, #a0a0b0);
+  font-size: 0.82rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.18s, color 0.18s;
+  white-space: nowrap;
+}
+
+.mg-mode-btn:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-primary, #fff);
+}
+
+.mg-mode-btn.active {
+  background: var(--accent, #9333ea);
+  color: #fff;
 }

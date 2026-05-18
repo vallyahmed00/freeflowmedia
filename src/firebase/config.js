@@ -29,4 +29,5 @@ export const GENERATE_AI_LEADS_URL = "https://us-central1-freeflow-media.cloudfu
 export const GENERATE_OUTREACH_SCRIPT_URL = "https://us-central1-freeflow-media.cloudfunctions.net/generateOutreachScript";
 export const SEND_LEAD_ALERT_URL = "https://us-central1-freeflow-media.cloudfunctions.net/sendLeadAlert";
 export const GENERATE_OUTREACH_EMAIL_URL = "https://us-central1-freeflow-media.cloudfunctions.net/generateOutreachEmail";
+export const CONTENT_GENERATOR_PROXY_URL = "https://us-central1-freeflow-media.cloudfunctions.net/contentGeneratorProxy";
 export default app;

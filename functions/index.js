@@ -1971,3 +1971,124 @@ No markdown, no explanation, ONLY the JSON array.`;
     }
   }
 );
+
+// ==================== SALES AGENT FOLLOW-UP (SCHEDULED) ====================
+
+exports.salesAgentFollowUp = onSchedule(
+  {
+    schedule: "0 9 * * *",
+    timeZone: "Africa/Johannesburg",
+    secrets: ["RESEND_API_KEY", "GEMINI_API_KEY", "DISCORD_WEBHOOK_URL"],
+    timeoutSeconds: 300,
+  },
+  async () => {
+    const now = Date.now();
+    const threeDaysMs = 3 * 24 * 60 * 60 * 1000;
+    const fourDaysMs = 4 * 24 * 60 * 60 * 1000; // Day 7 = Day 3 + 4 more days
+    const twoDaysMs = 2 * 24 * 60 * 60 * 1000;
+
+    const TERMINAL_STATUSES = ["replied", "qualified", "bounced", "not_interested"];
+
+    // --- Day 3 candidates: sequenceStep === 1, lastEmailedAt >= 3 days ago ---
+    const step1Snap = await db.collection("leads")
+      .where("salesAgent.sequenceStep", "==", 1)
+      .get();
+
+    const day3Candidates = step1Snap.docs.filter((doc) => {
+      const sa = doc.data().salesAgent;
+      if (!sa || sa.stopRequested || TERMINAL_STATUSES.includes(sa.status)) return false;
+      const lastEmailedMs = sa.lastEmailedAt?.toMillis?.() || 0;
+      return now - lastEmailedMs >= threeDaysMs;
+    });
+
+    // --- Day 7 candidates: sequenceStep === 2, lastEmailedAt >= 4 days ago ---
+    const step2Snap = await db.collection("leads")
+      .where("salesAgent.sequenceStep", "==", 2)
+      .get();
+
+    const day7Candidates = step2Snap.docs.filter((doc) => {
+      const sa = doc.data().salesAgent;
+      if (!sa || sa.stopRequested || TERMINAL_STATUSES.includes(sa.status)) return false;
+      const lastEmailedMs = sa.lastEmailedAt?.toMillis?.() || 0;
+      return now - lastEmailedMs >= fourDaysMs;
+    });
+
+    logger.info(`salesAgentFollowUp: ${day3Candidates.length} Day-3, ${day7Candidates.length} Day-7 candidates`);
+
+    const resend = getResend();
+
+    for (const doc of day3Candidates) {
+      const lead = doc.data();
+      const leadId = doc.id;
+      if (!lead.email) continue;
+      try {
+        const { subject, body } = await buildOutreachEmail(lead, 2);
+        const { data, error } = await resend.emails.send({
+          from: "Drift Studio <hello@driftstudio.co.za>",
+          to: lead.email,
+          subject,
+          text: body,
+          replyTo: "hello@driftstudio.co.za",
+        });
+        if (error || !data?.id) { logger.error(`Day 3 Resend error for ${leadId}:`, error ?? "data was null"); continue; }
+
+        await db.collection("leads").doc(leadId).update({
+          "salesAgent.status": "followed_up_1",
+          "salesAgent.sequenceStep": 2,
+          "salesAgent.lastEmailedAt": admin.firestore.FieldValue.serverTimestamp(),
+          "salesAgent.emailIds": admin.firestore.FieldValue.arrayUnion(data.id),
+          "salesAgent.conversationSummary": `Day 1 intro + Day 3 follow-up sent. Last subject: "${subject}"`,
+        });
+        logger.info(`salesAgentFollowUp: Day 3 sent to ${lead.email}`);
+      } catch (err) {
+        logger.error(`salesAgentFollowUp Day 3 error for ${leadId}:`, err);
+      }
+    }
+
+    for (const doc of day7Candidates) {
+      const lead = doc.data();
+      const leadId = doc.id;
+      if (!lead.email) continue;
+      try {
+        const { subject, body } = await buildOutreachEmail(lead, 3);
+        const { data, error } = await resend.emails.send({
+          from: "Drift Studio <hello@driftstudio.co.za>",
+          to: lead.email,
+          subject,
+          text: body,
+          replyTo: "hello@driftstudio.co.za",
+        });
+        if (error || !data?.id) { logger.error(`Day 7 Resend error for ${leadId}:`, error ?? "data was null"); continue; }
+
+        await db.collection("leads").doc(leadId).update({
+          "salesAgent.status": "followed_up_2",
+          "salesAgent.sequenceStep": 3,
+          "salesAgent.lastEmailedAt": admin.firestore.FieldValue.serverTimestamp(),
+          "salesAgent.emailIds": admin.firestore.FieldValue.arrayUnion(data.id),
+          "salesAgent.conversationSummary": `Full 3-email sequence complete. No reply. Last subject: "${subject}"`,
+        });
+        logger.info(`salesAgentFollowUp: Day 7 sent to ${lead.email}`);
+      } catch (err) {
+        logger.error(`salesAgentFollowUp Day 7 error for ${leadId}:`, err);
+      }
+    }
+
+    // --- Mark no_response for step 3 leads where Day 7 was sent 2+ days ago ---
+    const step3Snap = await db.collection("leads")
+      .where("salesAgent.sequenceStep", "==", 3)
+      .where("salesAgent.status", "==", "followed_up_2")
+      .get();
+
+    for (const doc of step3Snap.docs) {
+      const sa = doc.data().salesAgent;
+      if (sa.stopRequested) continue;
+      const lastEmailedMs = sa.lastEmailedAt?.toMillis?.() || 0;
+      if (now - lastEmailedMs >= twoDaysMs) {
+        await db.collection("leads").doc(doc.id).update({
+          "salesAgent.status": "no_response",
+        });
+        logger.info(`salesAgentFollowUp: marked no_response for ${doc.id}`);
+      }
+    }
+  }
+);

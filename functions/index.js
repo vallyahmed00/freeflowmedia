@@ -106,53 +106,58 @@ const HUMANIZER_RULES = `HUMANIZER RULES — apply every one:
 
 const buildOutreachEmail = async (lead, step) => {
   const { business_name, industry, notes } = lead;
+  const sanitize = (val, maxLen = 200) =>
+    String(val ?? "").replace(/[\n\r`{}]/g, " ").slice(0, maxLen);
+  const safeName     = sanitize(business_name);
+  const safeIndustry = sanitize(industry);
+  const safeNotes    = sanitize(notes, 500);
   const ai = getAI();
   let prompt;
 
   if (step === 1) {
-    prompt = `You are Ahmed from Drift Studio, a South African marketing agency. Write a Day 1 cold outreach email to ${business_name}, a business in the ${industry || "general"} industry.
+    prompt = `You are Ahmed from Drift Studio, a South African marketing agency. Write a Day 1 cold outreach email to ${safeName}, a business in the ${safeIndustry || "general"} industry.
 
 Goal: Open a conversation. No pitch, no pricing.
 Instructions:
 - Max 150 words
-- Reference "${business_name}" and "${industry || "your industry"}" in the first sentence
-- Mention one specific challenge businesses in the ${industry || "general"} industry face
+- Reference "${safeName}" and "${safeIndustry || "your industry"}" in the first sentence
+- Mention one specific challenge businesses in the ${safeIndustry || "general"} industry face
 - Ask one open question that invites a reply
 - Sign off as "Ahmed, Drift Studio"
 ${HUMANIZER_RULES}
-${notes ? `Context about this lead: ${notes}` : ""}
+${safeNotes ? `Context about this lead: ${safeNotes}` : ""}
 
 Respond with a JSON object: { "subject": "...", "body": "..." }
 Output ONLY raw JSON. No markdown, no explanation.`;
   } else if (step === 2) {
-    prompt = `You are Ahmed from Drift Studio, a South African marketing agency. Write a Day 3 follow-up email to ${business_name}, a business in the ${industry || "general"} industry. They didn't reply to your first email.
+    prompt = `You are Ahmed from Drift Studio, a South African marketing agency. Write a Day 3 follow-up email to ${safeName}, a business in the ${safeIndustry || "general"} industry. They didn't reply to your first email.
 
 Goal: A fresh hook. Different value angle.
 Instructions:
 - Max 120 words
 - Reference the Day 1 email briefly ("I reached out earlier this week")
-- Lead with a stat, trend, or insight relevant to the ${industry || "general"} industry in South Africa
+- Lead with a stat, trend, or insight relevant to the ${safeIndustry || "general"} industry in South Africa
 - One question at the end
 - Do not mention pricing or services directly
 - Sign off as "Ahmed, Drift Studio"
 ${HUMANIZER_RULES}
-${notes ? `Context about this lead: ${notes}` : ""}
+${safeNotes ? `Context about this lead: ${safeNotes}` : ""}
 
 Respond with a JSON object: { "subject": "...", "body": "..." }
 Output ONLY raw JSON. No markdown, no explanation.`;
   } else {
-    prompt = `You are Ahmed from Drift Studio, a South African marketing agency. Write a Day 7 final follow-up email to ${business_name}, a business in the ${industry || "general"} industry. They haven't replied to two previous emails.
+    prompt = `You are Ahmed from Drift Studio, a South African marketing agency. Write a Day 7 final follow-up email to ${safeName}, a business in the ${safeIndustry || "general"} industry. They haven't replied to two previous emails.
 
 Goal: Last attempt. Give something before leaving.
 Instructions:
 - Max 160 words
 - Acknowledge this is the last follow-up
-- Include one specific, actionable marketing tip for a ${industry || "general"} business in South Africa
+- Include one specific, actionable marketing tip for a ${safeIndustry || "general"} business in South Africa
 - End with: "If the timing's not right, no worries — I'll leave it here. Feel free to reach out whenever."
 - No hard sell
 - Sign off as "Ahmed, Drift Studio"
 ${HUMANIZER_RULES}
-${notes ? `Context about this lead: ${notes}` : ""}
+${safeNotes ? `Context about this lead: ${safeNotes}` : ""}
 
 Respond with a JSON object: { "subject": "...", "body": "..." }
 Output ONLY raw JSON. No markdown, no explanation.`;
@@ -289,7 +294,7 @@ exports.salesAgentTrigger = onDocumentCreated(
     }
 
     // Skip if salesAgent map was already initialized (re-created doc edge case)
-    if (lead.salesAgent?.sequenceStep) return;
+    if (lead.salesAgent?.sequenceStep != null) return;
 
     try {
       const { subject, body } = await buildOutreachEmail(lead, 1);
@@ -303,8 +308,8 @@ exports.salesAgentTrigger = onDocumentCreated(
         replyTo: "hello@driftstudio.co.za",
       });
 
-      if (error) {
-        logger.error(`salesAgentTrigger Resend error for ${leadId}:`, error);
+      if (error || !data?.id) {
+        logger.error(`salesAgentTrigger Resend error for ${leadId}:`, error ?? "data was null");
         return;
       }
 
@@ -1173,8 +1178,7 @@ exports.checkAbandonedPayments = onSchedule(
         return { success: true, count: 0 };
       }
 
-      const { Resend } = require("resend");
-      const resend = new Resend(process.env.RESEND_API_KEY);
+      const resend = getResend();
       const fromEmail = process.env.RESEND_FROM_EMAIL;
 
       // Recovery promo code from env — add RECOVERY_PROMO to PROMO_CODES secret

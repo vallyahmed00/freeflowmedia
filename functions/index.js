@@ -16,11 +16,13 @@
 
 const { onRequest } = require("firebase-functions/v2/https");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
+const { onDocumentCreated } = require("firebase-functions/v2/firestore");
 const logger = require("firebase-functions/logger");
 const admin = require("firebase-admin");
 const cors = require("cors")({ origin: true });
 const { GoogleGenAI } = require("@google/genai");
 const axios = require("axios");
+const { Resend } = require("resend");
 
 admin.initializeApp();
 const db = admin.firestore();
@@ -71,6 +73,98 @@ const getAI = () => {
     throw new Error("GEMINI_API_KEY is not set in environment variables.");
   }
   return new GoogleGenAI(apiKey);
+};
+
+// ==================== SALES AGENT HELPERS ====================
+
+const getResend = () => {
+  const apiKey = process.env.RESEND_API_KEY;
+  if (!apiKey) throw new Error("RESEND_API_KEY is not set");
+  return new Resend(apiKey);
+};
+
+const postDiscordAlert = async (message) => {
+  const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
+  if (!webhookUrl) return;
+  try {
+    await axios.post(webhookUrl, { content: message });
+  } catch (e) {
+    logger.error("Discord alert failed:", e.message);
+  }
+};
+
+const HUMANIZER_RULES = `HUMANIZER RULES — apply every one:
+- No em dashes (—)
+- Never open with "I hope this finds you well" or any filler opener
+- No rule-of-three bullet lists
+- No sentence starting with an -ing verb
+- Mix sentence lengths: short punchy lines alongside longer flowing ones
+- Use contractions throughout (I'm, we've, don't, it's, you're)
+- No corporate buzzwords: leverage, synergy, robust, seamlessly, holistic, ecosystem
+- Single specific CTA only — never multiple asks
+- Reference the business name and industry in the first sentence`;
+
+const buildOutreachEmail = async (lead, step) => {
+  const { business_name, industry, notes } = lead;
+  const ai = getAI();
+  let prompt;
+
+  if (step === 1) {
+    prompt = `You are Ahmed from Drift Studio, a South African marketing agency. Write a Day 1 cold outreach email to ${business_name}, a business in the ${industry || "general"} industry.
+
+Goal: Open a conversation. No pitch, no pricing.
+Instructions:
+- Max 150 words
+- Reference "${business_name}" and "${industry || "your industry"}" in the first sentence
+- Mention one specific challenge businesses in the ${industry || "general"} industry face
+- Ask one open question that invites a reply
+- Sign off as "Ahmed, Drift Studio"
+${HUMANIZER_RULES}
+${notes ? `Context about this lead: ${notes}` : ""}
+
+Respond with a JSON object: { "subject": "...", "body": "..." }
+Output ONLY raw JSON. No markdown, no explanation.`;
+  } else if (step === 2) {
+    prompt = `You are Ahmed from Drift Studio, a South African marketing agency. Write a Day 3 follow-up email to ${business_name}, a business in the ${industry || "general"} industry. They didn't reply to your first email.
+
+Goal: A fresh hook. Different value angle.
+Instructions:
+- Max 120 words
+- Reference the Day 1 email briefly ("I reached out earlier this week")
+- Lead with a stat, trend, or insight relevant to the ${industry || "general"} industry in South Africa
+- One question at the end
+- Do not mention pricing or services directly
+- Sign off as "Ahmed, Drift Studio"
+${HUMANIZER_RULES}
+${notes ? `Context about this lead: ${notes}` : ""}
+
+Respond with a JSON object: { "subject": "...", "body": "..." }
+Output ONLY raw JSON. No markdown, no explanation.`;
+  } else {
+    prompt = `You are Ahmed from Drift Studio, a South African marketing agency. Write a Day 7 final follow-up email to ${business_name}, a business in the ${industry || "general"} industry. They haven't replied to two previous emails.
+
+Goal: Last attempt. Give something before leaving.
+Instructions:
+- Max 160 words
+- Acknowledge this is the last follow-up
+- Include one specific, actionable marketing tip for a ${industry || "general"} business in South Africa
+- End with: "If the timing's not right, no worries — I'll leave it here. Feel free to reach out whenever."
+- No hard sell
+- Sign off as "Ahmed, Drift Studio"
+${HUMANIZER_RULES}
+${notes ? `Context about this lead: ${notes}` : ""}
+
+Respond with a JSON object: { "subject": "...", "body": "..." }
+Output ONLY raw JSON. No markdown, no explanation.`;
+  }
+
+  const response = await ai.models.generateContent({
+    model: "gemini-2.0-flash",
+    contents: prompt,
+  });
+
+  const raw = (response.text ?? "").trim().replace(/^```json\s*/i, "").replace(/```$/i, "");
+  return parseJsonResponse(raw, `buildOutreachEmail step ${step}`);
 };
 
 // ==================== CONTENT STUDIO HELPERS ====================
@@ -174,6 +268,65 @@ exports.contentGeneratorProxy = onRequest(
         return res.status(500).json({ error: "Generation failed. Please try again." });
       }
     });
+  }
+);
+
+// ==================== SALES AGENT ====================
+
+exports.salesAgentTrigger = onDocumentCreated(
+  {
+    document: "leads/{leadId}",
+    secrets: ["RESEND_API_KEY", "GEMINI_API_KEY", "DISCORD_WEBHOOK_URL"],
+    timeoutSeconds: 60,
+  },
+  async (event) => {
+    const lead = event.data.data();
+    const leadId = event.params.leadId;
+
+    if (!lead.email) {
+      logger.warn(`salesAgentTrigger: lead ${leadId} has no email, skipping`);
+      return;
+    }
+
+    // Skip if salesAgent map was already initialized (re-created doc edge case)
+    if (lead.salesAgent?.sequenceStep) return;
+
+    try {
+      const { subject, body } = await buildOutreachEmail(lead, 1);
+
+      const resend = getResend();
+      const { data, error } = await resend.emails.send({
+        from: "Drift Studio <hello@driftstudio.co.za>",
+        to: lead.email,
+        subject,
+        text: body,
+        replyTo: "hello@driftstudio.co.za",
+      });
+
+      if (error) {
+        logger.error(`salesAgentTrigger Resend error for ${leadId}:`, error);
+        return;
+      }
+
+      const now = admin.firestore.FieldValue.serverTimestamp();
+      await db.collection("leads").doc(leadId).update({
+        salesAgent: {
+          status: "contacted",
+          sequenceStep: 1,
+          lastEmailedAt: now,
+          firstContactedAt: now,
+          qualifiedAt: null,
+          replyDetectedAt: null,
+          emailIds: [data.id],
+          conversationSummary: `Day 1 intro sent. Subject: "${subject}"`,
+          stopRequested: false,
+        },
+      });
+
+      logger.info(`salesAgentTrigger: Day 1 email sent to ${lead.email} for lead ${leadId}`);
+    } catch (err) {
+      logger.error(`salesAgentTrigger error for ${leadId}:`, err);
+    }
   }
 );
 

@@ -2331,7 +2331,12 @@ const runLeadGeneration = async () => {
       for (const lead of incoming) {
         const email = (lead.email || lead.contact_email || "").toLowerCase();
 
-        if (email && existingEmails.has(email)) {
+        if (!email) {
+          skippedForTarget++;
+          continue;
+        }
+
+        if (existingEmails.has(email)) {
           skippedForTarget++;
           continue;
         }
@@ -2401,6 +2406,16 @@ exports.triggerAutoGenerate = onRequest(
     cors(req, res, async () => {
       if (req.method !== "POST") {
         return res.status(405).json({ error: "Method not allowed" });
+      }
+      const authHeader = req.headers.authorization || "";
+      const idToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
+      if (!idToken) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      try {
+        await admin.auth().verifyIdToken(idToken);
+      } catch {
+        return res.status(401).json({ error: "Unauthorized" });
       }
       try {
         const { newCount, skippedCount, queriesRun } = await runLeadGeneration();

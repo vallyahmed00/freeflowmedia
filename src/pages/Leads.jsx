@@ -225,7 +225,16 @@ export default function Leads() {
     if (!url) { toast.error('Auto-generate URL not configured'); return; }
     setRunningNow(true);
     try {
-      const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+      const { getAuth } = await import('firebase/auth');
+      const currentUser = getAuth().currentUser;
+      const idToken = currentUser ? await currentUser.getIdToken() : null;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}),
+        },
+      });
       const data = await res.json();
       toast.success(`Done — ${data.newCount} new leads saved`);
       loadData();

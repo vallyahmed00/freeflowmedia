@@ -2049,6 +2049,9 @@ exports.salesAgentFollowUp = onSchedule(
           "salesAgent.conversationSummary": `Day 1 intro + Day 3 follow-up sent. Last subject: "${subject}"`,
         });
         logger.info(`salesAgentFollowUp: Day 3 sent to ${lead.email}`);
+        await postDiscordAlert(
+          `📧 DAY 3 FOLLOW-UP\n**${lead.business_name || lead.email}** | ${lead.email}\nNo reply yet — different angle sent.`
+        );
       } catch (err) {
         logger.error(`salesAgentFollowUp Day 3 error for ${leadId}:`, err);
       }
@@ -2077,6 +2080,9 @@ exports.salesAgentFollowUp = onSchedule(
           "salesAgent.conversationSummary": `Full 3-email sequence complete. No reply. Last subject: "${subject}"`,
         });
         logger.info(`salesAgentFollowUp: Day 7 sent to ${lead.email}`);
+        await postDiscordAlert(
+          `📧 FINAL FOLLOW-UP\n**${lead.business_name || lead.email}** | ${lead.email}\nLast touch. If no reply, marking no_response.`
+        );
       } catch (err) {
         logger.error(`salesAgentFollowUp Day 7 error for ${leadId}:`, err);
       }

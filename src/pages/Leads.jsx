@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   Plus, Sparkles, Download, LayoutGrid, Columns, Trash2,
   UserCheck, RefreshCw, TrendingUp, Users, Target, Star,
-  ChevronDown, Mail, BellRing, Ban
+  ChevronDown, Mail, BellRing, Ban, Settings, Play
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { Toaster } from 'react-hot-toast';
@@ -13,7 +13,8 @@ import LeadFormModal from '../components/LeadFormModal';
 import LeadGeneratorModal from '../components/LeadGeneratorModal';
 import {
   fetchLeads, updateLead, deleteLead,
-  bulkDeleteLeads, bulkUpdateStatus, getDashboardStats, exportLeadsToCSV
+  bulkDeleteLeads, bulkUpdateStatus, getDashboardStats, exportLeadsToCSV,
+  getSearchTargets, saveSearchTarget, toggleSearchTarget, deleteSearchTarget,
 } from '../services/leadApi';
 import {
   markLeadReplied, markLeadQualified, stopOutreach,
@@ -71,6 +72,10 @@ export default function Leads() {
   const [editLead, setEditLead] = useState(null);
   const [showForm, setShowForm] = useState(false);
   const [showGenerator, setShowGenerator] = useState(false);
+  const [showTargets, setShowTargets] = useState(false);
+  const [targets, setTargets] = useState([]);
+  const [newTarget, setNewTarget] = useState({ query: '', location: '', maxResults: 20 });
+  const [runningNow, setRunningNow] = useState(false);
 
   const loadData = useCallback(async () => {
     try {
@@ -85,6 +90,17 @@ export default function Leads() {
   }, []);
 
   useEffect(() => { loadData(); }, [loadData]);
+
+  const loadTargets = useCallback(async () => {
+    try {
+      const data = await getSearchTargets();
+      setTargets(data);
+    } catch {
+      // non-critical — targets panel may be empty
+    }
+  }, []);
+
+  useEffect(() => { loadTargets(); }, [loadTargets]);
 
   // ─── Derived data ──────────────────────────────────────────────────────────
 
@@ -176,6 +192,47 @@ export default function Leads() {
     } catch { toast.error('Failed to stop outreach'); }
   };
 
+  const handleAddTarget = async () => {
+    if (!newTarget.query.trim() || !newTarget.location.trim()) {
+      toast.error('Query and location are required');
+      return;
+    }
+    try {
+      await saveSearchTarget(newTarget);
+      setNewTarget({ query: '', location: '', maxResults: 20 });
+      toast.success('Target added');
+      loadTargets();
+    } catch { toast.error('Failed to add target'); }
+  };
+
+  const handleToggleTarget = async (id, active) => {
+    try {
+      await toggleSearchTarget(id, active);
+      loadTargets();
+    } catch { toast.error('Failed to update target'); }
+  };
+
+  const handleDeleteTarget = async (id) => {
+    try {
+      await deleteSearchTarget(id);
+      toast.success('Target removed');
+      loadTargets();
+    } catch { toast.error('Failed to delete target'); }
+  };
+
+  const handleRunNow = async () => {
+    const url = import.meta.env.VITE_TRIGGER_AUTO_GENERATE_URL;
+    if (!url) { toast.error('Auto-generate URL not configured'); return; }
+    setRunningNow(true);
+    try {
+      const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+      const data = await res.json();
+      toast.success(`Done — ${data.newCount} new leads saved`);
+      loadData();
+    } catch { toast.error('Run failed — check console'); }
+    finally { setRunningNow(false); }
+  };
+
   // ─── Stat card ─────────────────────────────────────────────────────────────
 
   const StatCard = ({ label, value, color, icon: Icon }) => (
@@ -264,6 +321,13 @@ export default function Leads() {
             <button className="btn btn-outline" onClick={handleExportAll} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
               <Download size={15} /> Export CSV
             </button>
+            <button
+              className="btn btn-outline"
+              onClick={() => setShowTargets(p => !p)}
+              style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: showTargets ? '#A78BFA' : undefined }}
+            >
+              <Settings size={15} /> Auto-Generate
+            </button>
             <button className="btn btn-outline" onClick={() => setShowGenerator(true)} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
               <Sparkles size={15} /> Generate Leads
             </button>
@@ -280,6 +344,84 @@ export default function Leads() {
           <StatCard label="Interested" value={stats.interested} color="#8B5CF6" icon={Target} />
           <StatCard label="Converted" value={stats.converted} color="#22C55E" icon={TrendingUp} />
         </div>
+
+        {/* Search Targets Panel */}
+        {showTargets && (
+          <div style={{ marginBottom: '1.5rem', padding: '1.25rem', background: 'rgba(139,92,246,0.05)', border: '1px solid rgba(139,92,246,0.2)', borderRadius: 12 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 700 }}>Auto-Generate Targets</h3>
+                <p style={{ margin: '0.2rem 0 0', fontSize: '0.8rem', color: 'var(--text-muted)' }}>Runs daily at 8am SAST — adds new leads automatically</p>
+              </div>
+              <button
+                onClick={handleRunNow}
+                disabled={runningNow}
+                style={{ padding: '0.4rem 0.9rem', borderRadius: 8, background: 'rgba(139,92,246,0.15)', border: '1px solid rgba(139,92,246,0.3)', color: '#A78BFA', fontSize: '0.8rem', fontWeight: 600, cursor: runningNow ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: '0.4rem', opacity: runningNow ? 0.6 : 1 }}
+              >
+                <Play size={13} /> {runningNow ? 'Running...' : 'Run Now'}
+              </button>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '1rem' }}>
+              {targets.length === 0 ? (
+                <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', textAlign: 'center', padding: '1rem 0', margin: 0 }}>No targets yet. Add one below.</p>
+              ) : targets.map(t => (
+                <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.6rem 0.9rem', background: 'rgba(255,255,255,0.02)', borderRadius: 8, border: '1px solid rgba(255,255,255,0.06)', flexWrap: 'wrap' }}>
+                  <div style={{ flex: 1, minWidth: 160 }}>
+                    <span style={{ fontWeight: 600, fontSize: '0.85rem' }}>{t.query}</span>
+                    <span style={{ color: 'var(--text-muted)', fontSize: '0.82rem' }}> — {t.location}</span>
+                    {t.industry && <span style={{ color: 'var(--text-muted)', fontSize: '0.78rem' }}> · {t.industry}</span>}
+                    {t.leadsFoundLastRun != null && (
+                      <span style={{ color: '#10B981', fontSize: '0.75rem', marginLeft: '0.5rem' }}>Last run: {t.leadsFoundLastRun} leads</span>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => handleToggleTarget(t.id, !t.active)}
+                    style={{ background: 'none', border: `1px solid ${t.active ? 'rgba(16,185,129,0.4)' : 'rgba(255,255,255,0.1)'}`, borderRadius: 6, padding: '0.25rem 0.6rem', cursor: 'pointer', color: t.active ? '#10B981' : 'var(--text-muted)', fontSize: '0.75rem', fontWeight: 700 }}
+                  >
+                    {t.active ? 'ON' : 'OFF'}
+                  </button>
+                  <button
+                    onClick={() => handleDeleteTarget(t.id)}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#EF4444', padding: '0.2rem', display: 'flex', alignItems: 'center' }}
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+              <input
+                type="text"
+                placeholder="Search query (e.g. hair salons)"
+                value={newTarget.query}
+                onChange={e => setNewTarget(p => ({ ...p, query: e.target.value }))}
+                style={{ flex: 2, minWidth: 140, padding: '0.5rem 0.75rem', borderRadius: 8, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.05)', color: 'inherit', fontSize: '0.85rem' }}
+              />
+              <input
+                type="text"
+                placeholder="Location (e.g. Cape Town)"
+                value={newTarget.location}
+                onChange={e => setNewTarget(p => ({ ...p, location: e.target.value }))}
+                style={{ flex: 2, minWidth: 130, padding: '0.5rem 0.75rem', borderRadius: 8, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.05)', color: 'inherit', fontSize: '0.85rem' }}
+              />
+              <input
+                type="number"
+                placeholder="Max"
+                value={newTarget.maxResults}
+                onChange={e => setNewTarget(p => ({ ...p, maxResults: parseInt(e.target.value) || 20 }))}
+                style={{ width: 72, padding: '0.5rem 0.75rem', borderRadius: 8, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.05)', color: 'inherit', fontSize: '0.85rem' }}
+              />
+              <button
+                onClick={handleAddTarget}
+                style={{ padding: '0.5rem 1rem', borderRadius: 8, background: 'rgba(139,92,246,0.2)', border: '1px solid rgba(139,92,246,0.3)', color: '#A78BFA', fontSize: '0.85rem', fontWeight: 600, cursor: 'pointer' }}
+              >
+                Add Target
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Bulk actions bar */}
         <AnimatePresence>

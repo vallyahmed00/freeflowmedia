@@ -352,6 +352,7 @@ export const saveSearchTarget = async ({ query: q, location, industry = '', maxR
       maxResults,
       active: true,
       createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
       lastRunAt: null,
       leadsFoundLastRun: null,
     });
@@ -364,7 +365,7 @@ export const saveSearchTarget = async ({ query: q, location, industry = '', maxR
 
 export const toggleSearchTarget = async (id, active) => {
   try {
-    await updateDoc(doc(db, TARGETS_COL, id), { active });
+    await updateDoc(doc(db, TARGETS_COL, id), { active, updatedAt: serverTimestamp() });
   } catch (err) {
     console.error('[leadApi] toggleSearchTarget error:', err);
     throw err;

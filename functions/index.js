@@ -2281,3 +2281,137 @@ exports.salesAgentReplyWebhook = onRequest(
     });
   }
 );
+
+// ==================== AUTO LEAD GENERATION ====================
+
+const GENERATE_LEADS_CLOUD_RUN_URL = "https://generateleads-twv5vwv4qa-uc.a.run.app";
+
+const runLeadGeneration = async () => {
+  const targetsSnap = await db.collection("leadSearchTargets")
+    .where("active", "==", true)
+    .get();
+
+  if (targetsSnap.empty) {
+    logger.info("autoGenerateLeads: no active search targets");
+    return { newCount: 0, skippedCount: 0, queriesRun: [] };
+  }
+
+  // Fetch all existing emails upfront to avoid per-lead Firestore queries
+  const existingSnap = await db.collection("leads").select("email").get();
+  const existingEmails = new Set(
+    existingSnap.docs
+      .map((d) => d.data().email)
+      .filter(Boolean)
+      .map((e) => e.toLowerCase())
+  );
+
+  let totalNew = 0;
+  let totalSkipped = 0;
+  const queriesRun = [];
+
+  for (const targetDoc of targetsSnap.docs) {
+    const target = targetDoc.data();
+    const { query: searchQuery, location, industry = "", maxResults = 20 } = target;
+
+    try {
+      const response = await axios.post(
+        GENERATE_LEADS_CLOUD_RUN_URL,
+        {
+          query: industry ? `${searchQuery} ${industry}` : searchQuery,
+          location,
+          max_results: maxResults,
+        },
+        { timeout: 60000 }
+      );
+
+      const incoming = response.data?.new_leads || response.data?.leads || [];
+      let newForTarget = 0;
+      let skippedForTarget = 0;
+
+      for (const lead of incoming) {
+        const email = (lead.email || lead.contact_email || "").toLowerCase();
+
+        if (email && existingEmails.has(email)) {
+          skippedForTarget++;
+          continue;
+        }
+
+        await db.collection("leads").add({
+          business_name: lead.business_name || lead.name || "",
+          contact_name: lead.contact_name || "",
+          email: email || "",
+          phone: lead.phone || "",
+          website: lead.website || "",
+          industry: lead.industry || lead.category || industry || "",
+          location: lead.location || lead.address || location || "",
+          country: "South Africa",
+          source: "auto_generated",
+          status: "new",
+          notes: lead.notes || lead.description || "",
+          priority_score: 0,
+          followUpDate: null,
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+
+        if (email) existingEmails.add(email);
+        newForTarget++;
+      }
+
+      totalNew += newForTarget;
+      totalSkipped += skippedForTarget;
+      queriesRun.push(`"${searchQuery} — ${location}" (${newForTarget} new)`);
+
+      await targetDoc.ref.update({
+        lastRunAt: admin.firestore.FieldValue.serverTimestamp(),
+        leadsFoundLastRun: newForTarget,
+      });
+    } catch (err) {
+      logger.error(`autoGenerateLeads: error for target "${searchQuery} ${location}":`, err.message);
+      queriesRun.push(`"${searchQuery} — ${location}" (ERROR)`);
+    }
+  }
+
+  return { newCount: totalNew, skippedCount: totalSkipped, queriesRun };
+};
+
+exports.autoGenerateLeads = onSchedule(
+  {
+    schedule: "0 8 * * *",
+    timeZone: "Africa/Johannesburg",
+    secrets: ["DISCORD_WEBHOOK_URL"],
+    timeoutSeconds: 540,
+  },
+  async () => {
+    const { newCount, skippedCount, queriesRun } = await runLeadGeneration();
+    await postDiscordAlert(
+      `🎯 AUTO-GENERATION COMPLETE\n**${newCount} new leads saved** | ${skippedCount} duplicates skipped\nQueries: ${queriesRun.join(", ") || "none"}\nDay 1 emails sending now...`
+    );
+    logger.info(`autoGenerateLeads: ${newCount} new, ${skippedCount} skipped`);
+  }
+);
+
+exports.triggerAutoGenerate = onRequest(
+  {
+    secrets: ["DISCORD_WEBHOOK_URL"],
+    cors: true,
+    timeoutSeconds: 540,
+  },
+  async (req, res) => {
+    cors(req, res, async () => {
+      if (req.method !== "POST") {
+        return res.status(405).json({ error: "Method not allowed" });
+      }
+      try {
+        const { newCount, skippedCount, queriesRun } = await runLeadGeneration();
+        await postDiscordAlert(
+          `🎯 MANUAL RUN COMPLETE\n**${newCount} new leads saved** | ${skippedCount} duplicates skipped\nQueries: ${queriesRun.join(", ") || "none"}\nDay 1 emails sending now...`
+        );
+        return res.status(200).json({ newCount, skippedCount, queriesRun });
+      } catch (err) {
+        logger.error("triggerAutoGenerate error:", err);
+        return res.status(500).json({ error: err.message });
+      }
+    });
+  }
+);

@@ -2015,7 +2015,13 @@ exports.salesAgentFollowUp = onSchedule(
 
     logger.info(`salesAgentFollowUp: ${day3Candidates.length} Day-3, ${day7Candidates.length} Day-7 candidates`);
 
-    const resend = getResend();
+    let resend;
+    try {
+      resend = getResend();
+    } catch (err) {
+      logger.error("salesAgentFollowUp: Resend not initialised, aborting.", err);
+      return;
+    }
 
     for (const doc of day3Candidates) {
       const lead = doc.data();

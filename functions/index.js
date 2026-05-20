@@ -2210,6 +2210,10 @@ exports.salesAgentReplyWebhook = onRequest(
       // ─── Resend: email bounced ───────────────────────────────────────────────
       if (type === "email.bounced") {
         const emailId = payload.data?.email_id;
+        if (!emailId) {
+          logger.warn("salesAgentReplyWebhook: email.bounced missing email_id, skipping");
+          return res.status(200).json({ received: true });
+        }
         try {
           const snap = await db.collection("leads")
             .where("salesAgent.emailIds", "array-contains", emailId)
@@ -2224,6 +2228,8 @@ exports.salesAgentReplyWebhook = onRequest(
             await postDiscordAlert(
               `⚠️ **Bounce:** ${lead.business_name} — ${lead.email}`
             );
+          } else {
+            logger.warn("salesAgentReplyWebhook: no lead found for bounced emailId", emailId);
           }
         } catch (err) {
           logger.error("salesAgentReplyWebhook bounce error:", err);
@@ -2234,6 +2240,10 @@ exports.salesAgentReplyWebhook = onRequest(
       // ─── Resend: spam complaint ──────────────────────────────────────────────
       if (type === "email.complained") {
         const emailId = payload.data?.email_id;
+        if (!emailId) {
+          logger.warn("salesAgentReplyWebhook: email.complained missing email_id, skipping");
+          return res.status(200).json({ received: true });
+        }
         try {
           const snap = await db.collection("leads")
             .where("salesAgent.emailIds", "array-contains", emailId)
@@ -2248,6 +2258,8 @@ exports.salesAgentReplyWebhook = onRequest(
             await postDiscordAlert(
               `🚫 **Spam complaint:** ${lead.business_name} — ${lead.email}`
             );
+          } else {
+            logger.warn("salesAgentReplyWebhook: no lead found for complained emailId", emailId);
           }
         } catch (err) {
           logger.error("salesAgentReplyWebhook complaint error:", err);

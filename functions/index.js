@@ -2101,7 +2101,7 @@ exports.salesAgentFollowUp = onSchedule(
 
 exports.salesAgentReplyWebhook = onRequest(
   {
-    secrets: ["DISCORD_WEBHOOK_URL", "RESEND_WEBHOOK_SECRET"],
+    secrets: ["DISCORD_WEBHOOK_URL"],
     cors: true,
     timeoutSeconds: 30,
   },

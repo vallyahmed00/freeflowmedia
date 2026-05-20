@@ -207,46 +207,19 @@ export const bulkUpdateStatus = async (ids, status) => {
 
 // ─── SEARCH / GENERATE ──────────────────────────────────────────────────────
 
-/**
- * Search leads by filtering Firestore results client-side.
- *
- * TODO: Replace this with a Firebase Function that calls the Apify API for
- * real lead generation (scraping Google Maps, LinkedIn, etc.). The function
- * would accept { query, location, industry, source, max_results } and return
- * { new_leads, total_found }.
- *
- * @param {Object} params  { query, location, industry, source, max_results }
- */
+const GENERATE_LEADS_URL = 'https://generateleads-twv5vwv4qa-uc.a.run.app';
+
 export const searchLeads = async (params = {}) => {
-  try {
-    const constraints = [orderBy('createdAt', 'desc')];
-    if (params.location) constraints.unshift(where('location', '==', params.location));
-    if (params.industry) constraints.unshift(where('industry', '==', params.industry));
-    if (params.source && params.source !== 'all') constraints.unshift(where('source', '==', params.source));
-
-    const q = query(collection(db, LEADS_COL), ...constraints);
-    const snap = await getDocs(q);
-    const leads = snap.docs.map(mapDoc);
-
-    // Client-side text filter
-    const term = (params.query || '').toLowerCase();
-    const filtered = term
-      ? leads.filter(
-          (l) =>
-            l.business_name?.toLowerCase().includes(term) ||
-            l.industry?.toLowerCase().includes(term) ||
-            l.location?.toLowerCase().includes(term)
-        )
-      : leads;
-
-    return {
-      new_leads: filtered.slice(0, params.max_results || 20),
-      total_found: filtered.length,
-    };
-  } catch (err) {
-    console.error('[leadApi] searchLeads error:', err);
-    throw err;
+  const response = await fetch(GENERATE_LEADS_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err.detail || err.error || 'Lead generation failed');
   }
+  return response.json();
 };
 
 // ─── INTERACTION NOTES (subcollection) ──────────────────────────────────────
@@ -354,6 +327,59 @@ export const exportLeadsToCSV = (leads) => {
   URL.revokeObjectURL(url);
 };
 
+// ─── LEAD SEARCH TARGETS ────────────────────────────────────────────────────
+
+const TARGETS_COL = 'leadSearchTargets';
+
+export const getSearchTargets = async () => {
+  try {
+    const snap = await getDocs(
+      query(collection(db, TARGETS_COL), orderBy('createdAt', 'desc'))
+    );
+    return snap.docs.map(mapDoc);
+  } catch (err) {
+    console.error('[leadApi] getSearchTargets error:', err);
+    throw err;
+  }
+};
+
+export const saveSearchTarget = async ({ query: q, location, industry = '', maxResults = 20 }) => {
+  try {
+    const ref = await addDoc(collection(db, TARGETS_COL), {
+      query: q,
+      location,
+      industry,
+      maxResults,
+      active: true,
+      createdAt: serverTimestamp(),
+      lastRunAt: null,
+      leadsFoundLastRun: null,
+    });
+    return ref.id;
+  } catch (err) {
+    console.error('[leadApi] saveSearchTarget error:', err);
+    throw err;
+  }
+};
+
+export const toggleSearchTarget = async (id, active) => {
+  try {
+    await updateDoc(doc(db, TARGETS_COL, id), { active });
+  } catch (err) {
+    console.error('[leadApi] toggleSearchTarget error:', err);
+    throw err;
+  }
+};
+
+export const deleteSearchTarget = async (id) => {
+  try {
+    await deleteDoc(doc(db, TARGETS_COL, id));
+  } catch (err) {
+    console.error('[leadApi] deleteSearchTarget error:', err);
+    throw err;
+  }
+};
+
 // ─── Legacy named export for backwards compat ────────────────────────────────
 // Generator.jsx and any other files that imported `leadApi` as a named object
 // can import individual functions above.  For files that do:
@@ -374,6 +400,10 @@ export const leadApi = {
   getInteractions,
   subscribeToLeads,
   exportLeadsToCSV,
+  getSearchTargets,
+  saveSearchTarget,
+  toggleSearchTarget,
+  deleteSearchTarget,
   // Legacy aliases
   bulkImportLeads: async (leads) => {
     const results = await Promise.all(leads.map((l) => createLead(l)));

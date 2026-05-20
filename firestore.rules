@@ -1,53 +1,230 @@
-rules_version='2'
+rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-    
-    // Testimonials - public read, authenticated write
+
+    // --- HELPER FUNCTIONS ---
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(uid) {
+      return isAuthenticated() && request.auth.uid == uid;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
+    // --- ADMIN COLLECTION ---
+    match /admins/{docId} {
+      allow read: if isAuthenticated() && request.auth.uid == docId;
+      allow write: if isAdmin();
+    }
+
+    // --- PUBLIC READ / ADMIN WRITE (CMS content) ---
     match /testimonials/{docId} {
       allow read: if true;
-      allow write: if request.auth != null;
+      allow write: if isAdmin();
     }
-    
-    // Trust Badges - public read, authenticated write
+
     match /trustBadges/{docId} {
       allow read: if true;
-      allow write: if request.auth != null;
+      allow write: if isAdmin();
     }
-    
-    // Site Content (Stats) - public read, authenticated write
+
     match /siteContent/{docId} {
       allow read: if true;
-      allow write: if request.auth != null;
+      allow write: if isAdmin();
     }
-    
-    // Social Proof Notifications - public read, authenticated write
+
     match /socialProofNotifications/{docId} {
       allow read: if true;
-      allow write: if request.auth != null;
+      allow write: if isAdmin();
     }
-    
-    // Leads - authenticated users can manage, public can submit via contact form
+
+    // --- LEADS ---
     match /leads/{docId} {
-      allow read, update, delete: if request.auth != null;
-      allow create: if request.auth != null || 
-                       (request.resource.data.keys().hasAll(['business_name', 'email', 'source']) && 
-                        request.resource.data.source == 'contact_form');
+      allow read, update, delete: if isAdmin();
+      // Admin can create any lead; public contact form can create with restricted fields
+      allow create: if isAdmin() || (
+        request.resource.data.keys().hasAll(['business_name', 'email', 'source']) &&
+        request.resource.data.source == 'contact_form' &&
+        request.resource.data.email is string &&
+        request.resource.data.email.size() > 0
+      );
     }
-    
-    // Clients - authenticated users only
-    match /clients/{docId} {
-      allow read, write: if request.auth != null;
+
+    // Interactions subcollection (notes on leads)
+    match /leads/{leadId}/interactions/{interactionId} {
+      allow read, write: if isAdmin();
     }
-    
-    // Campaigns - authenticated users only
+
+    // --- STRATEGIES (Content Ideator) ---
+    // Unauthenticated users can create (pay-to-use), read their own by ID only
+    match /strategies/{docId} {
+      allow create: if true; // public tool, no auth required
+      allow read: if isAdmin() || (isAuthenticated() && resource.data.userEmail == request.auth.token.email);
+      allow update, delete: if isAdmin();
+    }
+
+    // --- PRICE COMPARISONS ---
+    match /priceComparisons/{docId} {
+      allow create: if true; // public tool
+      allow read: if isAdmin() || (isAuthenticated() && resource.data.userEmail == request.auth.token.email);
+      allow update, delete: if isAdmin();
+    }
+
+    // --- AI / STRATEGY CACHES (server-side only via Admin SDK — client rules deny all) ---
+    match /strategiesCache/{docId} {
+      allow read, write: if false;
+    }
+
+    match /aiCache/{docId} {
+      allow read, write: if false;
+    }
+
+    // --- USERS ---
+    match /users/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow write: if isAdmin();
+    }
+
+    // --- NEWSLETTER SUBSCRIBERS ---
+    match /newsletterSubscribers/{docId} {
+      allow create: if true;
+      allow read, update, delete: if isAdmin();
+    }
+
+    // --- CLIENTS ---
+    match /clients/{clientId} {
+      allow read, update: if isOwner(clientId) || isAdmin();
+      allow create: if isOwner(clientId) || isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    // --- CONTENT BRIEFS ---
+    match /contentBriefs/{briefId} {
+      allow create: if isAuthenticated() && request.resource.data.clientId == request.auth.uid;
+      allow read, update: if isAuthenticated() && (resource.data.clientId == request.auth.uid || isAdmin());
+      allow delete: if isAdmin();
+    }
+
+    // --- CONTENT CALENDAR ---
+    match /contentCalendar/{calendarId} {
+      allow read: if isAuthenticated() && (resource.data.clientId == request.auth.uid || isAdmin());
+      allow update: if isAuthenticated() && (resource.data.clientId == request.auth.uid || isAdmin());
+      allow create, delete: if isAdmin();
+    }
+
+    // --- ENGAGEMENT REPORTS ---
+    match /engagementReports/{reportId} {
+      allow read: if isAuthenticated() && (resource.data.clientId == request.auth.uid || isAdmin());
+      allow write: if isAdmin();
+    }
+
+    // --- SCHEDULED POSTS ---
+    match /scheduledPosts/{postId} {
+      allow read: if isAuthenticated() && (resource.data.clientId == request.auth.uid || isAdmin());
+      allow create, update, delete: if isAdmin();
+    }
+
+    // --- CLIENT HEALTH SCORES ---
+    match /clientHealthScores/{clientId} {
+      allow read: if isOwner(clientId) || isAdmin();
+      allow write: if isAdmin();
+    }
+
+    // --- COLD OUTREACH MODULE (all writes via Admin SDK / Cloud Functions only) ---
+    match /outreachProspects/{docId} {
+      allow read, write: if isAdmin();
+    }
+
+    match /outreachSequences/{docId} {
+      allow read, write: if isAdmin();
+    }
+
+    match /outreachEvents/{docId} {
+      allow read, write: if isAdmin();
+    }
+
+    match /outreachStats/{docId} {
+      allow read, write: if isAdmin();
+    }
+
+    // Tier quota and org config — server-side only, never client-writable
+    match /outreachUsage/{docId} {
+      allow read, write: if false;
+    }
+
+    match /organizationTiers/{docId} {
+      allow read, write: if false;
+    }
+
+    // --- XERO INTEGRATION (OAuth tokens — server-side only) ---
+    match /xeroIntegration/{docId} {
+      allow read, write: if isAdmin();
+    }
+
+    // --- LEAD SEARCH TARGETS (admin-only) ---
+    match /leadSearchTargets/{docId} {
+      allow read, write: if isAdmin();
+    }
+
+    // --- DRIP TASKS (scheduled WhatsApp / email delivery) ---
+    match /dripTasks/{docId} {
+      allow read, write: if isAdmin();
+    }
+
+    // --- DRIFT STUDIO FINANCE APP ---
+    // Shared Firebase project — finance collections are admin-only internal tools
+    match /accounts/{docId} {
+      allow read, write: if isAdmin() || isAuthenticated();
+    }
+
+    match /financeClients/{docId} {
+      allow read, write: if isAdmin() || isAuthenticated();
+    }
+
+    match /invoices/{invoiceId} {
+      allow read, write: if isAdmin() || isAuthenticated();
+    }
+
+    match /expenses/{docId} {
+      allow read, write: if isAdmin() || isAuthenticated();
+    }
+
+    match /income/{docId} {
+      allow read, write: if isAdmin() || isAuthenticated();
+    }
+
+    match /journalEntries/{docId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    match /assets/{docId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    // --- PAYMENTS ---
+    match /payments/{paymentId} {
+      allow read: if isAuthenticated() && (resource.data.clientId == request.auth.uid || isAdmin());
+      allow create: if true; // payment gateway webhooks use Admin SDK; client create needed for yoco callback
+      allow update, delete: if isAdmin();
+    }
+
+    // --- CAMPAIGNS (legacy — isolate by owner) ---
     match /campaigns/{docId} {
-      allow read, write: if request.auth != null;
+      allow read, update: if isOwner(resource.data.ownerId) || isAdmin();
+      allow create: if isAuthenticated() && request.resource.data.ownerId == request.auth.uid;
+      allow delete: if isAdmin();
     }
-    
-    // Reports - authenticated users only
+
+    // --- REPORTS (legacy — isolate by owner) ---
     match /reports/{docId} {
-      allow read, write: if request.auth != null;
+      allow read: if isAuthenticated() && (resource.data.ownerId == request.auth.uid || isAdmin());
+      allow create: if isAuthenticated() && request.resource.data.ownerId == request.auth.uid;
+      allow update, delete: if isAdmin();
     }
   }
 }

@@ -2098,3 +2098,165 @@ exports.salesAgentFollowUp = onSchedule(
     }
   }
 );
+
+exports.salesAgentReplyWebhook = onRequest(
+  {
+    secrets: ["DISCORD_WEBHOOK_URL", "RESEND_WEBHOOK_SECRET"],
+    cors: true,
+    timeoutSeconds: 30,
+  },
+  async (req, res) => {
+    cors(req, res, async () => {
+      if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+
+      const payload = req.body;
+      const type = payload.type;
+      const leadId = payload.leadId; // present for manual triggers from the admin UI
+
+      // Validate Resend webhook signature for server-originated events (not manual browser calls)
+      const signingSecret = process.env.RESEND_WEBHOOK_SECRET;
+      const hasSvixHeaders =
+        req.headers["svix-id"] && req.headers["svix-timestamp"] && req.headers["svix-signature"];
+
+      if (!leadId && signingSecret && hasSvixHeaders) {
+        const crypto = require("crypto");
+        const msgId = req.headers["svix-id"];
+        const timestamp = req.headers["svix-timestamp"];
+        const signature = req.headers["svix-signature"];
+        const rawBody = JSON.stringify(req.body);
+        const toSign = `${msgId}.${timestamp}.${rawBody}`;
+        const expected = crypto
+          .createHmac("sha256", signingSecret)
+          .update(toSign)
+          .digest("base64");
+        const signatures = signature.split(" ").map((s) => s.replace(/^v1,/, ""));
+        const valid = signatures.some((sig) => {
+          try {
+            return crypto.timingSafeEqual(
+              Buffer.from(sig, "base64"),
+              Buffer.from(expected, "base64")
+            );
+          } catch { return false; }
+        });
+        if (!valid) return res.status(401).json({ error: "Invalid webhook signature" });
+      }
+
+      // ─── Manual trigger: mark replied ───────────────────────────────────────
+      if (leadId && type === "replied") {
+        try {
+          const leadRef = db.collection("leads").doc(leadId);
+          const leadSnap = await leadRef.get();
+          if (!leadSnap.exists) return res.status(404).json({ error: "Lead not found" });
+
+          const lead = leadSnap.data();
+          await leadRef.update({
+            "salesAgent.status": "replied",
+            "salesAgent.replyDetectedAt": admin.firestore.FieldValue.serverTimestamp(),
+          });
+
+          const sa = lead.salesAgent || {};
+          const city = lead.location || lead.city || "SA";
+          const daysAgo = sa.firstContactedAt
+            ? Math.floor((Date.now() - sa.firstContactedAt.toMillis()) / (1000 * 60 * 60 * 24))
+            : "?";
+          const stepLabel =
+            sa.sequenceStep === 1 ? "Day 1 intro" :
+            sa.sequenceStep === 2 ? "Day 3 follow-up" : "Day 7 final";
+
+          await postDiscordAlert(
+            `💬 **LEAD REPLIED — Check your inbox**\n` +
+            `Name: ${lead.business_name}\n` +
+            `Email: ${lead.email}\n` +
+            `Industry: ${lead.industry || "Unknown"} | ${city}\n` +
+            `Contacted: ${daysAgo} day(s) ago (${stepLabel})\n\n` +
+            `Reply to ${lead.email} to continue the conversation.`
+          );
+
+          return res.status(200).json({ success: true });
+        } catch (err) {
+          logger.error("salesAgentReplyWebhook replied error:", err);
+          return res.status(500).json({ error: "Internal error" });
+        }
+      }
+
+      // ─── Manual trigger: mark qualified ─────────────────────────────────────
+      if (leadId && type === "qualified") {
+        try {
+          const leadRef = db.collection("leads").doc(leadId);
+          const leadSnap = await leadRef.get();
+          if (!leadSnap.exists) return res.status(404).json({ error: "Lead not found" });
+
+          const lead = leadSnap.data();
+          await leadRef.update({
+            "salesAgent.status": "qualified",
+            "salesAgent.qualifiedAt": admin.firestore.FieldValue.serverTimestamp(),
+          });
+
+          await postDiscordAlert(
+            `🔥 **QUALIFIED LEAD**\n` +
+            `Name: ${lead.business_name} | ${lead.email}\n` +
+            `Industry: ${lead.industry || "Unknown"} | ${lead.location || "SA"}\n` +
+            `Notes: ${lead.notes || "None"}\n\n` +
+            `They're interested. Book the call.`
+          );
+
+          return res.status(200).json({ success: true });
+        } catch (err) {
+          logger.error("salesAgentReplyWebhook qualified error:", err);
+          return res.status(500).json({ error: "Internal error" });
+        }
+      }
+
+      // ─── Resend: email bounced ───────────────────────────────────────────────
+      if (type === "email.bounced") {
+        const emailId = payload.data?.email_id;
+        try {
+          const snap = await db.collection("leads")
+            .where("salesAgent.emailIds", "array-contains", emailId)
+            .get();
+          if (!snap.empty) {
+            const doc = snap.docs[0];
+            const lead = doc.data();
+            await doc.ref.update({
+              "salesAgent.status": "bounced",
+              "salesAgent.stopRequested": true,
+            });
+            await postDiscordAlert(
+              `⚠️ **Bounce:** ${lead.business_name} — ${lead.email}`
+            );
+          }
+        } catch (err) {
+          logger.error("salesAgentReplyWebhook bounce error:", err);
+        }
+        return res.status(200).json({ received: true });
+      }
+
+      // ─── Resend: spam complaint ──────────────────────────────────────────────
+      if (type === "email.complained") {
+        const emailId = payload.data?.email_id;
+        try {
+          const snap = await db.collection("leads")
+            .where("salesAgent.emailIds", "array-contains", emailId)
+            .get();
+          if (!snap.empty) {
+            const doc = snap.docs[0];
+            const lead = doc.data();
+            await doc.ref.update({
+              "salesAgent.status": "not_interested",
+              "salesAgent.stopRequested": true,
+            });
+            await postDiscordAlert(
+              `🚫 **Spam complaint:** ${lead.business_name} — ${lead.email}`
+            );
+          }
+        } catch (err) {
+          logger.error("salesAgentReplyWebhook complaint error:", err);
+        }
+        return res.status(200).json({ received: true });
+      }
+
+      // Unknown event — acknowledge to prevent Resend retries
+      return res.status(200).json({ received: true });
+    });
+  }
+);

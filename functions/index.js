@@ -329,6 +329,9 @@ exports.salesAgentTrigger = onDocumentCreated(
       });
 
       logger.info(`salesAgentTrigger: Day 1 email sent to ${lead.email} for lead ${leadId}`);
+      await postDiscordAlert(
+        `🎯 NEW LEAD\n**${lead.business_name || 'Unknown'}** — ${lead.industry || 'Unknown industry'}\n📍 ${lead.location || 'Unknown location'}\n📧 ${lead.email}${lead.phone ? ` | 📞 ${lead.phone}` : ''}\nDay 1 intro email sending now...`
+      );
     } catch (err) {
       logger.error(`salesAgentTrigger error for ${leadId}:`, err);
     }

@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   Plus, Sparkles, Download, LayoutGrid, Columns, Trash2,
   UserCheck, RefreshCw, TrendingUp, Users, Target, Star,
-  ChevronDown
+  ChevronDown, Mail, BellRing, Ban
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { Toaster } from 'react-hot-toast';
@@ -15,6 +15,10 @@ import {
   fetchLeads, updateLead, deleteLead,
   bulkDeleteLeads, bulkUpdateStatus, getDashboardStats, exportLeadsToCSV
 } from '../services/leadApi';
+import {
+  markLeadReplied, markLeadQualified, stopOutreach,
+  SALES_AGENT_STATUS_LABELS, SALES_AGENT_STATUS_COLORS,
+} from '../services/salesAgentService';
 
 const STATUS_COLS = [
   { key: 'new',           label: 'New',         color: '#10B981' },
@@ -147,6 +151,31 @@ export default function Leads() {
 
   const handleGenerated = () => loadData();
 
+  const handleMarkReplied = async (leadId) => {
+    try {
+      await markLeadReplied(leadId);
+      toast.success('Lead marked as replied — Discord alert sent');
+      loadData();
+    } catch { toast.error('Failed to mark as replied'); }
+  };
+
+  const handleMarkQualified = async (leadId) => {
+    try {
+      await markLeadQualified(leadId);
+      toast.success('Lead marked as qualified — Discord alert sent');
+      loadData();
+    } catch { toast.error('Failed to mark as qualified'); }
+  };
+
+  const handleStopOutreach = async (leadId) => {
+    if (!window.confirm('Stop all outreach to this lead? This cannot be undone.')) return;
+    try {
+      await stopOutreach(leadId);
+      toast.success('Outreach stopped');
+      loadData();
+    } catch { toast.error('Failed to stop outreach'); }
+  };
+
   // ─── Stat card ─────────────────────────────────────────────────────────────
 
   const StatCard = ({ label, value, color, icon: Icon }) => (
@@ -168,6 +197,23 @@ export default function Leads() {
       </div>
     </div>
   );
+
+  const OutreachStatusBadge = ({ status }) => {
+    if (!status) return null;
+    const color = SALES_AGENT_STATUS_COLORS[status] || '#6B7280';
+    const label = SALES_AGENT_STATUS_LABELS[status] || status;
+    return (
+      <span style={{
+        display: 'inline-flex', alignItems: 'center', gap: '0.3rem',
+        padding: '0.2rem 0.6rem', borderRadius: 99,
+        background: `${color}20`, border: `1px solid ${color}40`,
+        color, fontSize: '0.7rem', fontWeight: 600,
+      }}>
+        <Mail size={10} />
+        {label}
+      </span>
+    );
+  };
 
   // ─── Kanban column ─────────────────────────────────────────────────────────
 
@@ -204,7 +250,7 @@ export default function Leads() {
   return (
     <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="page-container">
       <Toaster position="top-right" />
-      <div className="container" style={{ paddingTop: '7rem', paddingBottom: '4rem' }}>
+      <div className="container" style={{ paddingTop: '9.5rem', paddingBottom: '4rem' }}>
 
         {/* Header */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '1rem', marginBottom: '2rem' }}>
@@ -365,6 +411,91 @@ export default function Leads() {
         ) : (
           <div style={{ display: 'flex', gap: '1rem', overflowX: 'auto', paddingBottom: '1rem' }}>
             {STATUS_COLS.map(col => <KanbanCol key={col.key} col={col} />)}
+          </div>
+        )}
+
+        {/* Sales Outreach */}
+        {displayed.some(l => l.salesAgent?.status) && (
+          <div style={{ marginTop: '3rem' }}>
+            <div style={{ marginBottom: '1.25rem' }}>
+              <h2 style={{ margin: 0, fontSize: '1.3rem' }}>
+                Sales <span className="gradient-text">Outreach</span>
+              </h2>
+              <p style={{ margin: '0.3rem 0 0', color: 'var(--text-muted)', fontSize: '0.88rem' }}>
+                Automated follow-up — leads the sales agent has contacted
+              </p>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+              {displayed.filter(l => l.salesAgent?.status).map(lead => {
+                const sa = lead.salesAgent;
+                const TERMINAL = ['replied', 'qualified', 'not_interested', 'bounced'];
+                const canReply = !TERMINAL.includes(sa.status) && !sa.stopRequested;
+                const canQualify = sa.status === 'replied';
+                const canStop = !sa.stopRequested && !TERMINAL.includes(sa.status) && sa.status !== 'no_response';
+                return (
+                  <div
+                    key={lead.id}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap',
+                      padding: '0.85rem 1.1rem',
+                      background: 'rgba(255,255,255,0.02)',
+                      border: '1px solid rgba(255,255,255,0.07)',
+                      borderRadius: 10,
+                    }}
+                  >
+                    <div style={{ flex: 1, minWidth: 160 }}>
+                      <p style={{ margin: 0, fontWeight: 700, fontSize: '0.9rem' }}>{lead.business_name}</p>
+                      <p style={{ margin: '0.15rem 0 0', fontSize: '0.75rem', color: 'var(--text-muted)' }}>{lead.email}</p>
+                    </div>
+                    <OutreachStatusBadge status={sa.status} />
+                    <div style={{ display: 'flex', gap: '0.5rem', marginLeft: 'auto', flexWrap: 'wrap' }}>
+                      {canReply && (
+                        <button
+                          onClick={() => handleMarkReplied(lead.id)}
+                          style={{
+                            padding: '0.35rem 0.75rem', borderRadius: 8,
+                            border: '1px solid rgba(245,158,11,0.4)',
+                            background: 'rgba(245,158,11,0.1)', color: '#F59E0B',
+                            fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer',
+                            display: 'flex', alignItems: 'center', gap: '0.3rem',
+                          }}
+                        >
+                          <BellRing size={11} /> Mark Replied
+                        </button>
+                      )}
+                      {canQualify && (
+                        <button
+                          onClick={() => handleMarkQualified(lead.id)}
+                          style={{
+                            padding: '0.35rem 0.75rem', borderRadius: 8,
+                            border: '1px solid rgba(34,197,94,0.4)',
+                            background: 'rgba(34,197,94,0.1)', color: '#22C55E',
+                            fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer',
+                            display: 'flex', alignItems: 'center', gap: '0.3rem',
+                          }}
+                        >
+                          ✓ Qualified
+                        </button>
+                      )}
+                      {canStop && (
+                        <button
+                          onClick={() => handleStopOutreach(lead.id)}
+                          style={{
+                            padding: '0.35rem 0.75rem', borderRadius: 8,
+                            border: '1px solid rgba(239,68,68,0.3)',
+                            background: 'transparent', color: '#EF4444',
+                            fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer',
+                            display: 'flex', alignItems: 'center', gap: '0.3rem',
+                          }}
+                        >
+                          <Ban size={11} /> Stop
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         )}
 

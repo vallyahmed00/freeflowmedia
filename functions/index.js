@@ -1158,7 +1158,7 @@ exports.handlePaymentWebhook = onRequest(
 // ==================== 9. ABANDONED CART RECOVERY ====================
 
 exports.checkAbandonedPayments = onSchedule(
-  { schedule: "every 2 hours", timeZone: "Africa/Johannesburg", secrets: ["RESEND_API_KEY", "RESEND_FROM_EMAIL"] },
+  { schedule: "every 2 hours", timeZone: "Africa/Johannesburg", secrets: ["RESEND_API_KEY"] },
   async () => {
     logger.info("Checking for abandoned payments...");
 

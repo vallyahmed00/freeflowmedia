@@ -1,4 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
+import { doc, setDoc, getDoc } from 'firebase/firestore';
+import { db } from '../firebase/config';
 
 import { COUNTRIES, SA_PROVINCES } from '../utils/countryCodes';
 
@@ -84,6 +86,7 @@ export default function Leads() {
   const [targets, setTargets] = useState([]);
   const [newTarget, setNewTarget] = useState({ query: '', country: 'South Africa', province: '', city: '', maxResults: 20 });
   const [runningNow, setRunningNow] = useState(false);
+  const [runHour, setRunHour] = useState(8);
 
   const loadData = useCallback(async () => {
     try {
@@ -103,6 +106,8 @@ export default function Leads() {
     try {
       const data = await getSearchTargets();
       setTargets(data);
+      const configSnap = await getDoc(doc(db, 'config', 'autoGenerate'));
+      if (configSnap.exists()) setRunHour(configSnap.data().runHour ?? 8);
     } catch {
       // non-critical — targets panel may be empty
     }
@@ -198,6 +203,15 @@ export default function Leads() {
       toast.success('Outreach stopped');
       loadData();
     } catch { toast.error('Failed to stop outreach'); }
+  };
+
+  const handleSaveSchedule = async () => {
+    try {
+      await setDoc(doc(db, 'config', 'autoGenerate'), { runHour });
+      toast.success('Schedule saved');
+    } catch {
+      toast.error('Failed to save schedule');
+    }
   };
 
   const handleAddTarget = async () => {
@@ -381,6 +395,20 @@ export default function Leads() {
                 style={{ padding: '0.4rem 0.9rem', borderRadius: 8, background: 'rgba(139,92,246,0.15)', border: '1px solid rgba(139,92,246,0.3)', color: '#A78BFA', fontSize: '0.8rem', fontWeight: 600, cursor: runningNow ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: '0.4rem', opacity: runningNow ? 0.6 : 1 }}
               >
                 <Play size={13} /> {runningNow ? 'Running...' : 'Run Now'}
+              </button>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.6rem 0', borderTop: '1px solid rgba(255,255,255,0.06)', borderBottom: '1px solid rgba(255,255,255,0.06)', margin: '0.5rem 0' }}>
+              <span style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>Daily run time (SAST):</span>
+              <input
+                type="number" min="0" max="23"
+                value={runHour}
+                onChange={e => setRunHour(parseInt(e.target.value) || 0)}
+                style={{ width: 56, padding: '0.35rem 0.5rem', borderRadius: 6, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.05)', color: 'inherit', fontSize: '0.85rem', textAlign: 'center' }}
+              />
+              <span style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>:00</span>
+              <button onClick={handleSaveSchedule} style={{ padding: '0.35rem 0.75rem', borderRadius: 6, background: 'rgba(139,92,246,0.15)', border: '1px solid rgba(139,92,246,0.3)', color: '#A78BFA', fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer' }}>
+                Save
               </button>
             </div>
 

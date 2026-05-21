@@ -175,6 +175,11 @@ service cloud.firestore {
       allow read, write: if isAdmin();
     }
 
+    // --- APP CONFIG (admin-only) ---
+    match /config/{docId} {
+      allow read, write: if isAdmin();
+    }
+
     // --- DRIP TASKS (scheduled WhatsApp / email delivery) ---
     match /dripTasks/{docId} {
       allow read, write: if isAdmin();

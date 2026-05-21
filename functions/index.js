@@ -2420,12 +2420,18 @@ const runLeadGeneration = async () => {
 
 exports.autoGenerateLeads = onSchedule(
   {
-    schedule: "0 8 * * *",
+    schedule: "0 * * * *",
     timeZone: "Africa/Johannesburg",
     secrets: ["DISCORD_WEBHOOK_URL"],
     timeoutSeconds: 540,
   },
   async () => {
+    // Check Firestore config for preferred run hour (SAST)
+    const configDoc = await db.collection("config").doc("autoGenerate").get();
+    const runHour = configDoc.exists ? (configDoc.data().runHour ?? 8) : 8;
+    const nowSAST = new Date(new Date().toLocaleString("en-US", { timeZone: "Africa/Johannesburg" }));
+    if (nowSAST.getHours() !== runHour) return;
+
     const { newCount, skippedCount, queriesRun } = await runLeadGeneration();
     await postDiscordAlert(
       `🎯 AUTO-GENERATION COMPLETE\n**${newCount} new leads saved** | ${skippedCount} duplicates skipped\nQueries: ${queriesRun.join(", ") || "none"}\nDay 1 emails sending now...`

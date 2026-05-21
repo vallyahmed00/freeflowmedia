@@ -1,4 +1,20 @@
 import { useState, useEffect, useCallback } from 'react';
+
+const COUNTRIES = [
+  'South Africa', 'Zimbabwe', 'Botswana', 'Namibia', 'Zambia',
+  'Mozambique', 'Kenya', 'Nigeria', 'United Kingdom', 'United States', 'Australia',
+];
+
+const SA_PROVINCES = [
+  'Gauteng', 'Western Cape', 'Eastern Cape', 'KwaZulu-Natal',
+  'Limpopo', 'Mpumalanga', 'North West', 'Free State', 'Northern Cape',
+];
+
+const SEL = {
+  padding: '0.5rem 0.75rem', borderRadius: 8,
+  border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.05)',
+  color: 'inherit', fontSize: '0.85rem', cursor: 'pointer', flex: 1, minWidth: 120,
+};
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Plus, Sparkles, Download, LayoutGrid, Columns, Trash2,
@@ -74,7 +90,7 @@ export default function Leads() {
   const [showGenerator, setShowGenerator] = useState(false);
   const [showTargets, setShowTargets] = useState(false);
   const [targets, setTargets] = useState([]);
-  const [newTarget, setNewTarget] = useState({ query: '', location: '', maxResults: 20 });
+  const [newTarget, setNewTarget] = useState({ query: '', country: 'South Africa', province: '', city: '', maxResults: 20 });
   const [runningNow, setRunningNow] = useState(false);
 
   const loadData = useCallback(async () => {
@@ -193,13 +209,18 @@ export default function Leads() {
   };
 
   const handleAddTarget = async () => {
-    if (!newTarget.query.trim() || !newTarget.location.trim()) {
-      toast.error('Query and location are required');
+    if (!newTarget.query.trim()) {
+      toast.error('Search query is required');
       return;
     }
+    const location = newTarget.city
+      ? `${newTarget.city}, ${newTarget.province || newTarget.country}`
+      : newTarget.province
+      ? `${newTarget.province}, ${newTarget.country}`
+      : newTarget.country;
     try {
-      await saveSearchTarget(newTarget);
-      setNewTarget({ query: '', location: '', maxResults: 20 });
+      await saveSearchTarget({ ...newTarget, location });
+      setNewTarget({ query: '', country: 'South Africa', province: '', city: '', maxResults: 20 });
       toast.success('Target added');
       loadTargets();
     } catch { toast.error('Failed to add target'); }
@@ -400,34 +421,55 @@ export default function Leads() {
               ))}
             </div>
 
-            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-              <input
-                type="text"
-                placeholder="Search query (e.g. hair salons)"
-                value={newTarget.query}
-                onChange={e => setNewTarget(p => ({ ...p, query: e.target.value }))}
-                style={{ flex: 2, minWidth: 140, padding: '0.5rem 0.75rem', borderRadius: 8, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.05)', color: 'inherit', fontSize: '0.85rem' }}
-              />
-              <input
-                type="text"
-                placeholder="Location (e.g. Cape Town)"
-                value={newTarget.location}
-                onChange={e => setNewTarget(p => ({ ...p, location: e.target.value }))}
-                style={{ flex: 2, minWidth: 130, padding: '0.5rem 0.75rem', borderRadius: 8, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.05)', color: 'inherit', fontSize: '0.85rem' }}
-              />
-              <input
-                type="number"
-                placeholder="Max"
-                value={newTarget.maxResults}
-                onChange={e => setNewTarget(p => ({ ...p, maxResults: parseInt(e.target.value) || 20 }))}
-                style={{ width: 72, padding: '0.5rem 0.75rem', borderRadius: 8, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.05)', color: 'inherit', fontSize: '0.85rem' }}
-              />
-              <button
-                onClick={handleAddTarget}
-                style={{ padding: '0.5rem 1rem', borderRadius: 8, background: 'rgba(139,92,246,0.2)', border: '1px solid rgba(139,92,246,0.3)', color: '#A78BFA', fontSize: '0.85rem', fontWeight: 600, cursor: 'pointer' }}
-              >
-                Add Target
-              </button>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+              <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                <input
+                  type="text"
+                  placeholder="Search query (e.g. hair salons)"
+                  value={newTarget.query}
+                  onChange={e => setNewTarget(p => ({ ...p, query: e.target.value }))}
+                  style={{ flex: 2, minWidth: 160, padding: '0.5rem 0.75rem', borderRadius: 8, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.05)', color: 'inherit', fontSize: '0.85rem' }}
+                />
+                <select
+                  value={newTarget.country}
+                  onChange={e => setNewTarget(p => ({ ...p, country: e.target.value, province: '' }))}
+                  style={SEL}
+                >
+                  {COUNTRIES.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+              <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                {newTarget.country === 'South Africa' ? (
+                  <select
+                    value={newTarget.province}
+                    onChange={e => setNewTarget(p => ({ ...p, province: e.target.value }))}
+                    style={SEL}
+                  >
+                    <option value="">All provinces</option>
+                    {SA_PROVINCES.map(p => <option key={p} value={p}>{p}</option>)}
+                  </select>
+                ) : null}
+                <input
+                  type="text"
+                  placeholder={newTarget.country === 'South Africa' ? 'City (optional)' : 'City / Region'}
+                  value={newTarget.city}
+                  onChange={e => setNewTarget(p => ({ ...p, city: e.target.value }))}
+                  style={{ flex: 2, minWidth: 120, padding: '0.5rem 0.75rem', borderRadius: 8, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.05)', color: 'inherit', fontSize: '0.85rem' }}
+                />
+                <input
+                  type="number"
+                  placeholder="Max"
+                  value={newTarget.maxResults}
+                  onChange={e => setNewTarget(p => ({ ...p, maxResults: parseInt(e.target.value) || 20 }))}
+                  style={{ width: 72, padding: '0.5rem 0.75rem', borderRadius: 8, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.05)', color: 'inherit', fontSize: '0.85rem' }}
+                />
+                <button
+                  onClick={handleAddTarget}
+                  style={{ padding: '0.5rem 1rem', borderRadius: 8, background: 'rgba(139,92,246,0.2)', border: '1px solid rgba(139,92,246,0.3)', color: '#A78BFA', fontSize: '0.85rem', fontWeight: 600, cursor: 'pointer' }}
+                >
+                  Add Target
+                </button>
+              </div>
             </div>
           </div>
         )}

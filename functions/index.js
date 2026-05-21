@@ -288,13 +288,16 @@ exports.salesAgentTrigger = onDocumentCreated(
     const lead = event.data.data();
     const leadId = event.params.leadId;
 
-    if (!lead.email) {
-      logger.warn(`salesAgentTrigger: lead ${leadId} has no email, skipping`);
-      return;
-    }
-
     // Skip if salesAgent map was already initialized (re-created doc edge case)
     if (lead.salesAgent?.sequenceStep != null) return;
+
+    if (!lead.email) {
+      logger.warn(`salesAgentTrigger: lead ${leadId} has no email, skipping email cadence`);
+      await postDiscordAlert(
+        `🎯 NEW LEAD (no email)\n**${lead.business_name || 'Unknown'}** — ${lead.industry || 'Unknown industry'}\n📍 ${lead.location || 'Unknown location'}${lead.phone ? `\n📞 ${lead.phone}` : ''}\n_Manual outreach needed_`
+      ).catch(() => {});
+      return;
+    }
 
     try {
       const { subject, body } = await buildOutreachEmail(lead, 1);
@@ -2330,13 +2333,16 @@ const runLeadGeneration = async () => {
 
       for (const lead of incoming) {
         const email = (lead.email || lead.contact_email || "").toLowerCase();
+        const phone = lead.phone || "";
 
-        if (!email) {
+        // Skip only if there's truly no contact info at all
+        if (!email && !phone) {
           skippedForTarget++;
           continue;
         }
 
-        if (existingEmails.has(email)) {
+        // Skip email duplicates (phone-only leads always pass through)
+        if (email && existingEmails.has(email)) {
           skippedForTarget++;
           continue;
         }

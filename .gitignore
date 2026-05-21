@@ -1,2 +1,26 @@
 node_modules
 dist
+
+# Environment variables
+.env
+.env.*
+functions/.env
+functions/.env.*
+lead-qual-agent/.env
+
+# AI editor configs
+.qwen/
+
+# Service account keys
+*-key.json
+*.pem
+*service-account*.json
+
+# JSON files
+*.json
+!package.json
+!package-lock.json
+!firebase.json
+!firestore.indexes.json
+tools/website-demo/output/
+tools/website-demo/node_modules/

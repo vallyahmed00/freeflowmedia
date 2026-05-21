@@ -1,0 +1,15 @@
+{
+  "name": "website-demo-recorder",
+  "version": "1.0.0",
+  "description": "Records desktop + mobile demo videos of any website URL",
+  "main": "record-demo.js",
+  "scripts": {
+    "record": "node record-demo.js",
+    "install-browsers": "npx playwright install chromium"
+  },
+  "dependencies": {
+    "playwright": "^1.44.0",
+    "ffmpeg-static": "^5.2.0",
+    "fluent-ffmpeg": "^2.1.3"
+  }
+}

@@ -2,10 +2,18 @@ import React, { useState, useEffect } from 'react';
 import { Plus, X } from 'lucide-react';
 import { leadApi } from '../services/leadApi';
 import toast from 'react-hot-toast';
+import { COUNTRY_CODES, DEFAULT_COUNTRY_CODE, COUNTRIES, SA_PROVINCES, COUNTRY_TO_DIAL } from '../utils/countryCodes';
+
+const SEL = {
+  padding: '0.65rem 0.75rem', background: '#1a1a2e',
+  border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px',
+  color: 'white', fontSize: '0.9rem', width: '100%', cursor: 'pointer',
+};
 import './LeadFormModal.css';
 
 const LeadFormModal = ({ isOpen, onClose, onSaved, editLead = null }) => {
   const [isSaving, setIsSaving] = useState(false);
+  const [dialCode, setDialCode] = useState(DEFAULT_COUNTRY_CODE);
   const [formData, setFormData] = useState({
     business_name: '',
     contact_name: '',
@@ -15,10 +23,17 @@ const LeadFormModal = ({ isOpen, onClose, onSaved, editLead = null }) => {
     industry: '',
     location: '',
     country: 'South Africa',
+    province: '',
     description: '',
     source: 'manual',
     followUpDate: '',
   });
+
+  const handleCountryChange = (country) => {
+    setFormData(f => ({ ...f, country, province: '' }));
+    const dial = COUNTRY_TO_DIAL[country];
+    if (dial) setDialCode(dial);
+  };
 
   useEffect(() => {
     if (editLead) {
@@ -34,10 +49,13 @@ const LeadFormModal = ({ isOpen, onClose, onSaved, editLead = null }) => {
         industry: editLead.industry || '',
         location: editLead.location || '',
         country: editLead.country || 'South Africa',
+        province: editLead.province || '',
         description: editLead.description || '',
         source: editLead.source || 'manual',
         followUpDate: fud,
       });
+      const dial = COUNTRY_TO_DIAL[editLead.country];
+      if (dial) setDialCode(dial);
     } else {
       setFormData({
         business_name: '',
@@ -48,10 +66,12 @@ const LeadFormModal = ({ isOpen, onClose, onSaved, editLead = null }) => {
         industry: '',
         location: '',
         country: 'South Africa',
+        province: '',
         description: '',
         source: 'manual',
         followUpDate: '',
       });
+      setDialCode(DEFAULT_COUNTRY_CODE);
     }
   }, [editLead, isOpen]);
 
@@ -62,18 +82,22 @@ const LeadFormModal = ({ isOpen, onClose, onSaved, editLead = null }) => {
     }
 
     setIsSaving(true);
+    const payload = {
+      ...formData,
+      phone: formData.phone ? `${dialCode} ${formData.phone}` : '',
+    };
     try {
       if (editLead) {
-        await leadApi.updateLead(editLead.id, formData);
+        await leadApi.updateLead(editLead.id, payload);
         toast.success('Lead updated successfully');
       } else {
-        await leadApi.createLead(formData);
+        await leadApi.createLead(payload);
         toast.success('Lead added successfully');
       }
       onSaved && onSaved();
       onClose();
     } catch (err) {
-      toast.error(err.response?.data?.detail || 'Failed to save lead');
+      toast.error(err.message || 'Failed to save lead');
     } finally {
       setIsSaving(false);
     }
@@ -127,23 +151,34 @@ const LeadFormModal = ({ isOpen, onClose, onSaved, editLead = null }) => {
             </div>
           </div>
 
-          <div className="form-row">
-            <div className="form-group">
-              <label>Email</label>
-              <input
-                type="email"
-                value={formData.email}
-                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                placeholder="email@example.com"
-              />
-            </div>
-            <div className="form-group">
-              <label>Phone</label>
+          <div className="form-group">
+            <label>Email</label>
+            <input
+              type="email"
+              value={formData.email}
+              onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+              placeholder="email@example.com"
+            />
+          </div>
+
+          <div className="form-group">
+            <label>Phone</label>
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <select
+                value={dialCode}
+                onChange={e => setDialCode(e.target.value)}
+                style={{ padding: '0.65rem 0.4rem', background: '#1a1a2e', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', color: 'white', fontSize: '0.82rem', flexShrink: 0, maxWidth: '160px' }}
+              >
+                {COUNTRY_CODES.map(c => (
+                  <option key={`${c.country}-${c.code}`} value={c.code}>{c.label}</option>
+                ))}
+              </select>
               <input
                 type="tel"
                 value={formData.phone}
                 onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                placeholder="+27..."
+                placeholder="71 234 5678"
+                style={{ flex: 1 }}
               />
             </div>
           </div>
@@ -160,22 +195,30 @@ const LeadFormModal = ({ isOpen, onClose, onSaved, editLead = null }) => {
 
           <div className="form-row">
             <div className="form-group">
-              <label>Location</label>
-              <input
-                type="text"
-                value={formData.location}
-                onChange={(e) => setFormData({ ...formData, location: e.target.value })}
-                placeholder="City, Address"
-              />
-            </div>
-            <div className="form-group">
               <label>Country</label>
-              <input
-                type="text"
-                value={formData.country}
-                onChange={(e) => setFormData({ ...formData, country: e.target.value })}
-              />
+              <select value={formData.country} onChange={e => handleCountryChange(e.target.value)} style={SEL}>
+                {COUNTRIES.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
             </div>
+            {formData.country === 'South Africa' && (
+              <div className="form-group">
+                <label>Province</label>
+                <select value={formData.province} onChange={e => setFormData(f => ({ ...f, province: e.target.value }))} style={SEL}>
+                  <option value="">Select province</option>
+                  {SA_PROVINCES.map(p => <option key={p} value={p}>{p}</option>)}
+                </select>
+              </div>
+            )}
+          </div>
+
+          <div className="form-group">
+            <label>City / Address</label>
+            <input
+              type="text"
+              value={formData.location}
+              onChange={(e) => setFormData({ ...formData, location: e.target.value })}
+              placeholder="e.g. Cape Town, 12 Main Road"
+            />
           </div>
 
           <div className="form-group">

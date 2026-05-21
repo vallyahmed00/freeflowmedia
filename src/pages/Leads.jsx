@@ -1,14 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 
-const COUNTRIES = [
-  'South Africa', 'Zimbabwe', 'Botswana', 'Namibia', 'Zambia',
-  'Mozambique', 'Kenya', 'Nigeria', 'United Kingdom', 'United States', 'Australia',
-];
-
-const SA_PROVINCES = [
-  'Gauteng', 'Western Cape', 'Eastern Cape', 'KwaZulu-Natal',
-  'Limpopo', 'Mpumalanga', 'North West', 'Free State', 'Northern Cape',
-];
+import { COUNTRIES, SA_PROVINCES } from '../utils/countryCodes';
 
 const SEL = {
   padding: '0.5rem 0.75rem', borderRadius: 8,
@@ -28,7 +20,7 @@ import LeadDetailModal from '../components/LeadDetailModal';
 import LeadFormModal from '../components/LeadFormModal';
 import LeadGeneratorModal from '../components/LeadGeneratorModal';
 import {
-  fetchLeads, updateLead, deleteLead,
+  fetchLeads, deleteLead,
   bulkDeleteLeads, bulkUpdateStatus, getDashboardStats, exportLeadsToCSV,
   getSearchTargets, saveSearchTarget, toggleSearchTarget, deleteSearchTarget,
 } from '../services/leadApi';

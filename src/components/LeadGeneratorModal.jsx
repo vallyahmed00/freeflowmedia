@@ -5,15 +5,7 @@ import toast from 'react-hot-toast';
 import './LeadGeneratorModal.css';
 import './Modal.css';
 
-const COUNTRIES = [
-  'South Africa', 'Zimbabwe', 'Botswana', 'Namibia', 'Zambia',
-  'Mozambique', 'Kenya', 'Nigeria', 'United Kingdom', 'United States', 'Australia',
-];
-
-const SA_PROVINCES = [
-  'Gauteng', 'Western Cape', 'Eastern Cape', 'KwaZulu-Natal',
-  'Limpopo', 'Mpumalanga', 'North West', 'Free State', 'Northern Cape',
-];
+import { COUNTRIES, SA_PROVINCES } from '../utils/countryCodes';
 
 const SELECT_STYLE = {
   padding: '0.5rem 0.75rem',

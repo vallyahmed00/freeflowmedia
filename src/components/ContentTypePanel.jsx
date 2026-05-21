@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 
 const CONTENT_TYPES = {
   Social: [
+    'Content Ideas Pack',
     'Instagram Caption', 'Instagram Carousel', 'Facebook Post',
     'LinkedIn Post', 'Twitter / X Thread', 'TikTok Script',
     'YouTube Shorts Script', 'Pinterest Description',

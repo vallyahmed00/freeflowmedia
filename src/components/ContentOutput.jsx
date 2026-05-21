@@ -1,7 +1,57 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { RefreshCw, Edit3, Copy, ChevronLeft, ChevronRight, Sparkles } from 'lucide-react';
+import { RefreshCw, Edit3, Copy, ChevronLeft, ChevronRight, Sparkles, Film, Image, Layers } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { updateGenerationOutput } from '../services/contentStudioService';
+
+const TYPE_META = {
+  post:  { label: 'Post',  icon: Image,  color: '#A78BFA', bg: 'rgba(167,139,250,0.12)' },
+  reel:  { label: 'Reel',  icon: Film,   color: '#F472B6', bg: 'rgba(244,114,182,0.12)' },
+  story: { label: 'Story', icon: Layers, color: '#34D399', bg: 'rgba(52,211,153,0.12)' },
+};
+
+function IdeaCard({ idea }) {
+  const meta = TYPE_META[idea.type] || TYPE_META.post;
+  const Icon = meta.icon;
+  const copyText = idea.type === 'post'
+    ? `${idea.caption}\n\n${idea.hashtags || ''}`
+    : idea.type === 'reel'
+    ? `${idea.hook}\n\n${idea.script}`
+    : idea.content;
+
+  return (
+    <div style={{ background: 'rgba(255,255,255,0.03)', border: `1px solid ${meta.color}30`, borderRadius: 10, padding: '0.85rem 1rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', justifyContent: 'space-between' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+          <span style={{ background: meta.bg, color: meta.color, borderRadius: 6, padding: '0.15rem 0.5rem', fontSize: '0.7rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+            <Icon size={10} /> {meta.label}
+          </span>
+          <span style={{ fontSize: '0.78rem', fontWeight: 600, color: 'rgba(255,255,255,0.85)' }}>{idea.title}</span>
+        </div>
+        <button onClick={() => { navigator.clipboard.writeText(copyText); toast.success('Copied'); }}
+          style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.35)', padding: '0.2rem', display: 'flex', alignItems: 'center' }}>
+          <Copy size={11} />
+        </button>
+      </div>
+
+      {idea.type === 'post' && (
+        <>
+          <p style={{ margin: 0, fontSize: '0.78rem', color: 'rgba(255,255,255,0.7)', whiteSpace: 'pre-line', lineHeight: 1.5 }}>{idea.caption}</p>
+          {idea.hashtags && <p style={{ margin: 0, fontSize: '0.72rem', color: meta.color, opacity: 0.8 }}>{idea.hashtags}</p>}
+        </>
+      )}
+      {idea.type === 'reel' && (
+        <>
+          <p style={{ margin: 0, fontSize: '0.75rem', fontStyle: 'italic', color: meta.color }}>{idea.hook}</p>
+          <p style={{ margin: 0, fontSize: '0.78rem', color: 'rgba(255,255,255,0.7)', whiteSpace: 'pre-line', lineHeight: 1.5 }}>{idea.script}</p>
+          {idea.duration && <span style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.35)' }}>{idea.duration}</span>}
+        </>
+      )}
+      {idea.type === 'story' && (
+        <p style={{ margin: 0, fontSize: '0.78rem', color: 'rgba(255,255,255,0.7)', whiteSpace: 'pre-line', lineHeight: 1.5 }}>{idea.content}</p>
+      )}
+    </div>
+  );
+}
 
 const CHAR_LIMITS = {
   'Instagram Caption': 2200,
@@ -21,16 +71,8 @@ const CHAR_LIMITS = {
   'Hero Headline': 100,
 };
 
-function formatTime(ts) {
-  if (!ts) return '';
-  const d = ts.toDate ? ts.toDate() : new Date(ts);
-  const diff = Math.floor((Date.now() - d) / 1000);
-  if (diff < 60) return 'just now';
-  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
-  return `${Math.floor(diff / 3600)}h ago`;
-}
 
-export default function ContentOutput({ contentType, output, versions, currentVersion, generationId, onRegenerate, onVersionChange, isGenerating }) {
+export default function ContentOutput({ contentType, output, ideasPack, versions, currentVersion, generationId, onRegenerate, onVersionChange, isGenerating }) {
   const [editing, setEditing] = useState(false);
   const [editText, setEditText] = useState('');
   const contentRef = useRef(null);
@@ -79,6 +121,31 @@ export default function ContentOutput({ contentType, output, versions, currentVe
         <div className="cs-output-placeholder">
           <Sparkles size={32} />
           <div>Fill in the brief and click Generate</div>
+        </div>
+      </div>
+    );
+  }
+
+  if (contentType === 'Content Ideas Pack' && (ideasPack || isGenerating)) {
+    return (
+      <div className="cs-output-side">
+        <div className="cs-output-header">
+          <span className="cs-output-label">{isGenerating ? 'Generating…' : `Content Ideas Pack (${ideasPack?.length ?? 0})`}</span>
+          <button className="cs-output-btn" onClick={onRegenerate} disabled={isGenerating} title="Regenerate">
+            <RefreshCw size={12} /> Regenerate
+          </button>
+          {ideasPack && (
+            <button className="cs-output-btn" onClick={() => { navigator.clipboard.writeText(output); toast.success('Copied raw'); }} title="Copy all">
+              <Copy size={12} /> Copy All
+            </button>
+          )}
+        </div>
+        <div style={{ overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: '0.6rem', padding: '0.5rem 0' }}>
+          {isGenerating ? (
+            <span style={{ color: '#52525B', padding: '1rem' }}>Generating your ideas pack…</span>
+          ) : ideasPack?.map((idea, i) => (
+            <IdeaCard key={i} idea={idea} />
+          ))}
         </div>
       </div>
     );

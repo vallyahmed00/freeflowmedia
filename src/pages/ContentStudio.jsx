@@ -57,6 +57,7 @@ export default function ContentStudio() {
   const [targetAudience, setTargetAudience] = useState('');
   const [brandVoice, setBrandVoice] = useState(null);
   const [output, setOutput] = useState('');
+  const [ideasPack, setIdeasPack] = useState(null);
   const [versions, setVersions] = useState([]);
   const [currentVersion, setCurrentVersion] = useState(0);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -103,6 +104,7 @@ export default function ContentStudio() {
       setVersions(newVersions);
       setCurrentVersion(newVersions.length - 1);
       setOutput(result.output);
+      setIdeasPack(result.ideasPack || null);
       setGenerationId(result.generationId);
       loadHistory();
     } catch (err) {
@@ -116,6 +118,7 @@ export default function ContentStudio() {
     setSelectedType(type);
     setSelectedCategory(category);
     setOutput('');
+    setIdeasPack(null);
     setVersions([]);
     setCurrentVersion(0);
     setGenerationId(null);
@@ -228,6 +231,7 @@ export default function ContentStudio() {
           <ContentOutput
             contentType={selectedType}
             output={output}
+            ideasPack={ideasPack}
             versions={versions}
             currentVersion={currentVersion}
             generationId={generationId}

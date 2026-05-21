@@ -185,6 +185,28 @@ Brand Voice Profile:
 - Core Services: ${bv.coreServices || 'Not specified'}
 - Location: ${bv.location || 'Not specified'}` : '';
 
+  if (contentType === 'Content Ideas Pack') {
+    return `You are an expert social media strategist for a South African marketing agency.
+${brandSection}
+${businessContext ? `Business/Brand Context: ${businessContext}` : ''}
+${targetAudience ? `Target Audience: ${targetAudience}` : ''}
+
+Content Brief: ${brief}
+Tone: ${tone}
+
+Generate exactly 10 content ideas as a JSON array. Return ONLY valid JSON — no markdown, no explanation, no code fences.
+
+Schema:
+[
+  {"type":"post","title":"Short punchy hook line","caption":"Full ready-to-post caption with natural line breaks","hashtags":"#tag1 #tag2 #tag3 #tag4 #tag5"},
+  {"type":"reel","title":"Video concept title","hook":"Opening line spoken in first 3 seconds","script":"Full script: intro + 3 key points + CTA (each on a new line)","duration":"15-30s"},
+  {"type":"story","title":"Story idea title","content":"What to show or say across 1-3 slides"}
+]
+
+Include exactly: 5 posts, 3 reels, 2 stories — in that order.
+Rules: no em dashes, contractions throughout (you're, we've, it's), no buzzwords, specific and vivid details from the brief.`;
+  }
+
   return `You are an expert marketing copywriter producing ${contentType} content for a South African marketing agency client.
 ${brandSection}
 ${businessContext ? `Business/Brand Context: ${businessContext}` : ''}
@@ -252,6 +274,16 @@ exports.contentGeneratorProxy = onRequest(
           return res.status(502).json({ error: "Model returned no content. Please try again." });
         }
 
+        let ideasPack = null;
+        if (contentType === 'Content Ideas Pack') {
+          try {
+            const cleaned = output.replace(/```json|```/g, '').trim();
+            ideasPack = JSON.parse(cleaned);
+          } catch (e) {
+            logger.warn('Content Ideas Pack: failed to parse JSON output', e.message);
+          }
+        }
+
         const docRef = await db.collection("content_generations").add({
           userEmail,
           contentType,
@@ -267,7 +299,7 @@ exports.contentGeneratorProxy = onRequest(
           createdAt: admin.firestore.FieldValue.serverTimestamp(),
         });
 
-        return res.status(200).json({ output, generationId: docRef.id });
+        return res.status(200).json({ output, generationId: docRef.id, ...(ideasPack ? { ideasPack } : {}) });
       } catch (err) {
         logger.error("contentGeneratorProxy error:", err);
         return res.status(500).json({ error: "Generation failed. Please try again." });

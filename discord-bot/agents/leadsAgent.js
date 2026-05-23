@@ -1,7 +1,10 @@
 const admin = require('firebase-admin');
 
 if (!admin.apps.length) {
-  admin.initializeApp({ projectId: process.env.FIREBASE_PROJECT_ID });
+  const credential = process.env.GOOGLE_SERVICE_ACCOUNT_JSON
+    ? admin.credential.cert(JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON))
+    : admin.credential.applicationDefault();
+  admin.initializeApp({ credential, projectId: process.env.FIREBASE_PROJECT_ID });
 }
 const db = admin.firestore();
 
@@ -11,13 +14,20 @@ async function runLeadsAgent(status = 'all') {
   if (status !== 'all') {
     snap = await db.collection('leads')
       .where('status', '==', status)
-      .orderBy('createdAt', 'desc')
-      .limit(15)
+      .limit(50)
       .get();
 
     if (snap.empty) return `No leads found with status **${status}**.`;
 
-    const lines = snap.docs.map(d => {
+    const sorted = snap.docs
+      .sort((a, b) => {
+        const aTime = a.data().createdAt?.toMillis?.() ?? 0;
+        const bTime = b.data().createdAt?.toMillis?.() ?? 0;
+        return bTime - aTime;
+      })
+      .slice(0, 15);
+
+    const lines = sorted.map(d => {
       const l = d.data();
       const contact = l.email || l.phone || 'no contact';
       return `• **${l.business_name || 'Unknown'}** — ${contact} — _${l.source || 'manual'}_`;

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import toast from 'react-hot-toast';
+import { ArrowLeft } from 'lucide-react';
 import MarketingForm from '../components/MarketingForm';
 import PaymentGateway from '../components/PaymentGateway';
 import StrategyDashboard from '../components/StrategyDashboard';
@@ -36,6 +37,10 @@ const MarketingGenerator = () => {
 
   const handlePaymentSuccess = (paymentDetails = {}) => {
     if (!formData) return;
+    if (paymentDetails.pending) {
+      setCurrentStep('pending');
+      return;
+    }
     generateStrategy(formData, { bypassPayment: false, paymentDetails });
   };
 
@@ -146,6 +151,7 @@ const MarketingGenerator = () => {
   const STEPS = [
     { key: 'form',       label: 'Brief' },
     { key: 'payment',    label: 'Payment' },
+    { key: 'pending',    label: 'Verification' },
     { key: 'generating', label: 'Generating' },
     { key: 'dashboard',  label: 'Results' },
   ];
@@ -191,7 +197,27 @@ const MarketingGenerator = () => {
             )}
 
             {currentStep === 'payment' && (
-              <PaymentGateway onSuccess={handlePaymentSuccess} onBack={() => setCurrentStep('form')} />
+              <PaymentGateway
+                onSuccess={handlePaymentSuccess}
+                onBack={() => setCurrentStep('form')}
+                formData={formData}
+              />
+            )}
+
+            {currentStep === 'pending' && (
+              <div className="mg-card" style={{ textAlign: 'center', padding: '2.5rem' }}>
+                <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>⏳</div>
+                <h2>Payment Submitted</h2>
+                <p style={{ marginBottom: '1.5rem' }}>
+                  Your proof of payment has been received. Our team will verify it and send you an access code — usually within a few hours.
+                </p>
+                <p style={{ marginBottom: '1.5rem', color: 'var(--text-muted, #888)' }}>
+                  Once you receive your code, enter it in the <strong>Promo Code</strong> field on the brief form to unlock your strategy.
+                </p>
+                <button className="mg-btn-text" onClick={() => setCurrentStep('form')}>
+                  <ArrowLeft size={16} /> Back to Form
+                </button>
+              </div>
             )}
 
             {currentStep === 'generating' && (

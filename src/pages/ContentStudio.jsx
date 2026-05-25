@@ -214,7 +214,7 @@ export default function ContentStudio() {
             </div>
             <div>
               <div className="cs-form-label">Brief</div>
-              <textarea className="cs-form-textarea" value={brief} onChange={e => setBrief(e.target.value)} placeholder={getPlaceholder(selectedType)} style={{ minHeight: 120 }} />
+              <textarea className="cs-form-textarea" value={brief} onChange={e => setBrief(e.target.value)} placeholder={getPlaceholder(selectedType)} />
             </div>
             {brandVoice?.businessName && (
               <div className="cs-brand-voice-banner">

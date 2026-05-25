@@ -11,7 +11,7 @@ const TYPES = {
 async function runSalesAgent(brief, type = 'pitch') {
   const contentType = TYPES[type] || TYPES.pitch;
   const response = await ai.models.generateContent({
-    model: 'gemini-2.0-flash',
+    model: 'gemini-1.5-flash',
     contents: `You are a sharp B2B sales agent for Drift Studio, a South African digital marketing agency.
 Write ${contentType} for this lead/business:
 

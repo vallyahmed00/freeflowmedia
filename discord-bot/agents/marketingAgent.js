@@ -12,7 +12,7 @@ const TYPES = {
 async function runMarketingAgent(brief, type = 'ideas') {
   const contentType = TYPES[type] || TYPES.ideas;
   const response = await ai.models.generateContent({
-    model: 'gemini-2.0-flash',
+    model: 'gemini-1.5-flash',
     contents: `You are an expert social media strategist for Drift Studio, a South African digital marketing agency.
 Generate ${contentType} for:
 
@@ -21,7 +21,9 @@ ${brief}
 Rules: South African context where relevant. No em dashes. Contractions throughout. No buzzwords.
 Output ONLY the content — no preamble.`,
   });
-  return response.text ?? 'Generation failed.';
+  const text = response.text ?? response.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!text) throw new Error('Empty response from Gemini');
+  return text;
 }
 
 module.exports = { runMarketingAgent };

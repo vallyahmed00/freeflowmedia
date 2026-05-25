@@ -29,6 +29,10 @@ const XeroSettings = lazy(() => import('./pages/XeroSettings'));
 const TestingGuide = lazy(() => import('./pages/TestingGuide'));
 const Guides = lazy(() => import('./pages/Guides'));
 const Leads = lazy(() => import('./pages/Leads'));
+const PrivacyPolicy = lazy(() => import('./pages/PrivacyPolicy'));
+const Terms = lazy(() => import('./pages/Terms'));
+const OutreachDashboard = lazy(() => import('./pages/OutreachDashboard'));
+const AutomationsPage = lazy(() => import('./pages/AutomationsPage'));
 
 // Loading component
 const PageLoader = () => (
@@ -87,6 +91,7 @@ const AppContent = () => {
             <Route path="/work" element={<Work />} />
             <Route path="/pricing" element={<Pricing />} />
             <Route path="/automation" element={<Automation />} />
+            <Route path="/automations" element={<AutomationsPage />} />
             <Route path="/leads" element={<Leads />} />
             <Route path="/generate" element={<Generator />} />
             <Route path="/marketing-generator" element={<MarketingGenerator />} />
@@ -97,8 +102,11 @@ const AppContent = () => {
             <Route path="/admin" element={<Admin />} />
             <Route path="/admin/pipeline" element={<PipelineAdmin />} />
             <Route path="/admin/xero" element={<XeroSettings />} />
+            <Route path="/admin/outreach" element={<OutreachDashboard />} />
             <Route path="/testing-guide" element={<TestingGuide />} />
             <Route path="/guides" element={<Suspense fallback={<PageLoader />}><Guides /></Suspense>} />
+            <Route path="/privacy" element={<PrivacyPolicy />} />
+            <Route path="/terms" element={<Terms />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </Suspense>

@@ -1,5 +1,8 @@
-import React, { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { Link } from 'react-router-dom';
+import { onAuthStateChanged, signOut as firebaseSignOut } from 'firebase/auth';
+import { auth } from '../firebase/config';
+import { getNavbarPrimaryActions } from './navbarActions';
 import './Navbar.css';
 import logo from '../assets/logo.svg';
 
@@ -7,13 +10,20 @@ const TOOLS = [
   { label: 'Price Comparison', to: '/price-comparison' },
   { label: 'Leads', to: '/leads' },
   { label: 'Automation', to: '/automation' },
+  { label: 'Automations', to: '/automations' },
   { label: 'Content Ideator', to: '/marketing-generator' },
 ];
 
 const Navbar = () => {
   const [isOpen, setIsOpen] = useState(false);
   const [toolsOpen, setToolsOpen] = useState(false);
+  const [user, setUser] = useState(null);
   const toolsRef = useRef(null);
+
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, setUser);
+    return unsub;
+  }, []);
 
   // Close tools dropdown when clicking outside
   useEffect(() => {
@@ -30,6 +40,13 @@ const Navbar = () => {
     setIsOpen(false);
     setToolsOpen(false);
   };
+
+  const handleSignOut = async () => {
+    await firebaseSignOut(auth);
+    closeMobile();
+  };
+
+  const primaryActions = getNavbarPrimaryActions(user);
 
   return (
     <nav className="navbar">
@@ -71,12 +88,19 @@ const Navbar = () => {
             )}
           </li>
 
-          <li><Link to="/client-portal" onClick={closeMobile}>Log In</Link></li>
-          <li>
-            <Link to="/onboarding" className="nav-signup" onClick={closeMobile}>
-              Sign Up
-            </Link>
-          </li>
+          {primaryActions.map((item) => (
+            <li key={item.label}>
+              {item.action === 'signOut' ? (
+                <button type="button" className={item.className} onClick={handleSignOut}>
+                  {item.label}
+                </button>
+              ) : (
+                <Link to={item.to} className={item.className} onClick={closeMobile}>
+                  {item.label}
+                </Link>
+              )}
+            </li>
+          ))}
         </ul>
       </div>
     </nav>

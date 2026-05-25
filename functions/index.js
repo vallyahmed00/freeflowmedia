@@ -16,7 +16,7 @@
 
 const { onRequest } = require("firebase-functions/v2/https");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
-const { onDocumentCreated } = require("firebase-functions/v2/firestore");
+const { onDocumentCreated, onDocumentUpdated } = require("firebase-functions/v2/firestore");
 const logger = require("firebase-functions/logger");
 const admin = require("firebase-admin");
 const cors = require("cors")({ origin: true });
@@ -2945,6 +2945,330 @@ exports.clientOnboardingBot = onDocumentCreated(
 
     } catch (err) {
       logger.error(`clientOnboardingBot error for client ${clientId}:`, err.message);
+    }
+  }
+);
+
+// ==================== COMPETITOR TRACKER BOT ====================
+
+exports.competitorTrackerBot = onSchedule(
+  {
+    schedule: 'every monday 07:00',
+    timeZone: 'Africa/Johannesburg',
+    secrets: ['GEMINI_API_KEY', 'RESEND_API_KEY', 'WHATSAPP_ACCESS_TOKEN', 'WHATSAPP_PHONE_NUMBER_ID'],
+  },
+  async () => {
+    const { getActiveClients, generateWithGemini, sendEmailViaResend, sendWhatsAppToPhone } = require('./lib/bots/clientBotHelpers');
+    const clients = await getActiveClients('competitor_tracker');
+    logger.info(`competitorTrackerBot: running for ${clients.length} clients`);
+
+    for (const client of clients) {
+      try {
+        const name = client.businessName || client.name;
+        const industry = client.industry || 'general';
+        const location = client.location || 'South Africa';
+        const competitors = (client.competitors || []).join(', ') || 'top competitors in the area';
+
+        const digest = await generateWithGemini(
+          `You are a competitor intelligence analyst for a South African marketing agency.
+
+Business: ${name}
+Industry: ${industry}
+Location: ${location}
+Known competitors: ${competitors}
+
+Generate a weekly competitor intelligence digest. Cover:
+1. What tactics competitors in the ${industry} space in ${location} are likely using right now (social media, offers, content)
+2. One weakness you'd expect in a typical ${industry} competitor that ${name} can exploit
+3. One trending strategy in the ${industry} sector in SA this week
+4. One specific action ${name} should take THIS WEEK to stay ahead
+
+Keep it punchy. No fluff. Bullet points. Max 200 words. Written for a busy business owner.`
+        );
+
+        const summary = `📊 *Weekly Competitor Digest — ${name}*\n\n${digest}\n\n_Drift Studio Competitor Tracker_`;
+
+        if (client.whatsappNumber) {
+          await sendWhatsAppToPhone(client.whatsappNumber, summary);
+        }
+
+        if (client.email) {
+          await sendEmailViaResend({
+            to: client.email,
+            subject: `Your Weekly Competitor Intel — ${new Date().toLocaleDateString('en-ZA', { weekday: 'long', day: 'numeric', month: 'long' })}`,
+            html: `<div style="font-family:sans-serif;max-width:600px;margin:0 auto;">
+              <h2 style="color:#9333ea;">Weekly Competitor Digest</h2>
+              <p style="color:#555;font-size:0.9rem;">${new Date().toLocaleDateString('en-ZA', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</p>
+              <div style="background:#f9f9f9;border-left:4px solid #9333ea;padding:20px;border-radius:4px;white-space:pre-wrap;line-height:1.8;">${digest}</div>
+              <p style="color:#888;font-size:0.8rem;margin-top:24px;">Powered by Drift Studio Competitor Tracker · driftstudio.co.za</p>
+            </div>`,
+          });
+        }
+
+        await db.collection('clientIntel').doc(client.id).collection('weeklyDigests').add({
+          digest,
+          generatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          week: new Date().toISOString().slice(0, 10),
+        });
+
+        logger.info(`competitorTrackerBot: digest sent for ${name}`);
+      } catch (err) {
+        logger.error(`competitorTrackerBot error for client ${client.id}:`, err.message);
+      }
+    }
+  }
+);
+
+// ==================== WHATSAPP LEAD QUALIFIER BOT ====================
+
+exports.whatsAppLeadQualifierBot = onDocumentCreated(
+  {
+    document: 'whatsappConversations/{phone}',
+    secrets: ['WHATSAPP_ACCESS_TOKEN', 'WHATSAPP_PHONE_NUMBER_ID', 'GEMINI_API_KEY'],
+  },
+  async (event) => {
+    const convo = event.data?.data();
+    if (!convo) return;
+
+    const phone = event.params.phone;
+
+    // Only qualify genuinely new conversations (not initiated by us)
+    if (convo.initiatedByBusiness) return;
+
+    const token = process.env.WHATSAPP_ACCESS_TOKEN;
+    const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
+    if (!token || !phoneNumberId) return;
+
+    try {
+      const greeting =
+        `Hey! 👋 Thanks for reaching out to Drift Studio.\n\n` +
+        `To make sure we point you in the right direction, I've got 3 quick questions:\n\n` +
+        `1️⃣ What does your business do?\n` +
+        `2️⃣ What's your main challenge right now — leads, content, or follow-up?\n` +
+        `3️⃣ Roughly what budget are you working with per month? (e.g. under R1k, R1k–R3k, R3k+)\n\n` +
+        `Reply with your answers and we'll get back to you straight away. 🙌`;
+
+      await axios.post(
+        `https://graph.facebook.com/v19.0/${phoneNumberId}/messages`,
+        { messaging_product: 'whatsapp', to: phone, type: 'text', text: { body: greeting } },
+        { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }
+      );
+
+      await event.data.ref.update({
+        qualifierSent: true,
+        qualifierSentAt: admin.firestore.FieldValue.serverTimestamp(),
+        qualificationStatus: 'pending',
+      });
+
+      await event.data.ref.collection('messages').add({
+        from: 'business',
+        body: greeting,
+        timestamp: admin.firestore.FieldValue.serverTimestamp(),
+        type: 'qualifier',
+      });
+
+      logger.info(`whatsAppLeadQualifierBot: qualifier sent to ${phone}`);
+    } catch (err) {
+      logger.error(`whatsAppLeadQualifierBot error for ${phone}:`, err.message);
+    }
+  }
+);
+
+// ==================== INSTANT PROPOSAL BOT ====================
+
+exports.instantProposalBot = onDocumentUpdated(
+  {
+    document: 'leads/{leadId}',
+    secrets: ['GEMINI_API_KEY', 'RESEND_API_KEY'],
+  },
+  async (event) => {
+    const before = event.data.before.data();
+    const after = event.data.after.data();
+
+    // Only fire when status transitions to "qualified"
+    const wasQualified = before?.salesAgent?.status === 'qualified';
+    const isNowQualified = after?.salesAgent?.status === 'qualified';
+    if (wasQualified || !isNowQualified) return;
+
+    // Don't send if proposal already sent
+    if (after.proposalSentAt) return;
+
+    const { email, business_name, industry, location, notes } = after;
+    if (!email) {
+      logger.info(`instantProposalBot: lead ${event.params.leadId} has no email, skipping`);
+      return;
+    }
+
+    try {
+      const { generateWithGemini, sendEmailViaResend } = require('./lib/bots/clientBotHelpers');
+
+      const proposal = await generateWithGemini(
+        `You are writing a professional service proposal on behalf of Drift Studio, a South African AI marketing agency.
+
+Lead details:
+- Business: ${business_name || 'the business'}
+- Industry: ${industry || 'general'}
+- Location: ${location || 'South Africa'}
+- Notes: ${notes || 'none'}
+
+Write a concise, compelling proposal covering:
+1. A one-paragraph personalised opening referencing their business and industry
+2. Three recommended Drift Studio services most relevant to their situation (pick from: AI Marketing Strategy, Content Calendar Bot, Lead Response Bot, Invoice Reminder Bot, WhatsApp Automation, Lead Generation, Competitor Tracker, Reputation Defender)
+3. A pricing section: each service with a monthly cost (Strategy R499 once-off, bots R500–R900/mo, Full Suite R2500/mo)
+4. A simple next step: "Reply to this email or WhatsApp us at [number] to get started"
+5. Sign off from Ahmed Vally, Drift Studio
+
+Tone: confident, warm, no corporate jargon. Max 350 words. No markdown headers — use plain paragraphs and line breaks only.`
+      );
+
+      await sendEmailViaResend({
+        to: email,
+        subject: `Your Drift Studio Proposal — ${business_name || 'tailored for you'}`,
+        html: `<div style="font-family:sans-serif;max-width:600px;margin:0 auto;color:#1a1a1a;">
+          <div style="background:#9333ea;padding:32px;border-radius:12px 12px 0 0;">
+            <h1 style="color:#fff;margin:0;font-size:1.4rem;">Your Drift Studio Proposal</h1>
+          </div>
+          <div style="background:#f9f9f9;padding:32px;border-radius:0 0 12px 12px;">
+            <div style="white-space:pre-wrap;line-height:1.9;font-size:0.97rem;">${proposal}</div>
+            <hr style="border:none;border-top:1px solid #e5e7eb;margin:28px 0;">
+            <p style="color:#888;font-size:0.8rem;text-align:center;">Drift Studio · driftstudio.co.za · hello@driftstudio.co.za</p>
+          </div>
+        </div>`,
+      });
+
+      await event.data.after.ref.update({
+        proposalSentAt: admin.firestore.FieldValue.serverTimestamp(),
+        proposalContent: proposal,
+      });
+
+      await postDiscordAlert(
+        `📄 PROPOSAL SENT\n**${business_name || email}** — ${industry || 'Unknown'}\n📧 ${email}\nAI proposal delivered automatically.`
+      );
+
+      logger.info(`instantProposalBot: proposal sent to ${email}`);
+    } catch (err) {
+      logger.error(`instantProposalBot error for lead ${event.params.leadId}:`, err.message);
+    }
+  }
+);
+
+// ==================== TREND ALERT BOT ====================
+
+exports.trendAlertBot = onSchedule(
+  {
+    schedule: 'every day 07:00',
+    timeZone: 'Africa/Johannesburg',
+    secrets: ['GEMINI_API_KEY', 'WHATSAPP_ACCESS_TOKEN', 'WHATSAPP_PHONE_NUMBER_ID'],
+  },
+  async () => {
+    const { getActiveClients, generateWithGemini, sendWhatsAppToPhone } = require('./lib/bots/clientBotHelpers');
+    const clients = await getActiveClients('trend_alerts');
+    logger.info(`trendAlertBot: running for ${clients.length} clients`);
+
+    const today = new Date().toLocaleDateString('en-ZA', { weekday: 'long', day: 'numeric', month: 'long' });
+    const dayOfWeek = new Date().toLocaleDateString('en-ZA', { weekday: 'long' });
+
+    for (const client of clients) {
+      try {
+        const name = client.businessName || client.name;
+        const industry = client.industry || 'general';
+        const audience = client.targetAudience || 'South African consumers';
+        const tone = client.toneOfVoice || 'friendly';
+
+        const alert = await generateWithGemini(
+          `You are a real-time social media trend analyst for South African businesses. Today is ${today}.
+
+Business: ${name}
+Industry: ${industry}
+Target audience: ${audience}
+
+Identify ONE trend, topic, or conversation happening in South Africa RIGHT NOW (consider: current events, ${dayOfWeek} habits, seasonal context, SA pop culture, sport, public holidays nearby, economic news) that is relevant to a ${industry} business.
+
+Then write a ready-to-post Instagram/Facebook caption the business owner can copy and post immediately to ride this trend.
+
+Format your response exactly like this:
+TREND: [one sentence describing what's trending and why it's relevant]
+CAPTION: [full ready-to-post caption with relevant emojis and 5 hashtags]
+
+Keep the caption under 150 words. Tone: ${tone}. South African context throughout. No em dashes.`
+        );
+
+        const message = `📈 *Today's Trend Alert — ${today}*\n\n${alert}\n\n_Drift Studio Trend Bot · Copy & post now_`;
+
+        if (client.whatsappNumber) {
+          await sendWhatsAppToPhone(client.whatsappNumber, message);
+          logger.info(`trendAlertBot: sent to ${name} (${client.whatsappNumber})`);
+        }
+      } catch (err) {
+        logger.error(`trendAlertBot error for client ${client.id}:`, err.message);
+      }
+    }
+  }
+);
+
+// ==================== REPUTATION DEFENDER BOT ====================
+
+exports.reputationDefenderBot = onDocumentCreated(
+  {
+    document: 'reviews/{reviewId}',
+    secrets: ['GEMINI_API_KEY', 'WHATSAPP_ACCESS_TOKEN', 'WHATSAPP_PHONE_NUMBER_ID'],
+  },
+  async (event) => {
+    const review = event.data?.data();
+    if (!review) return;
+
+    const { clientId, reviewerName, rating, reviewText, platform } = review;
+    if (!clientId || !reviewText) return;
+
+    try {
+      const clientDoc = await db.collection('clients').doc(clientId).get();
+      if (!clientDoc.exists) return;
+      const client = clientDoc.data();
+
+      const { generateWithGemini, sendWhatsAppToPhone } = require('./lib/bots/clientBotHelpers');
+
+      const stars = '⭐'.repeat(Math.min(Number(rating) || 1, 5));
+      const sentiment = Number(rating) >= 4 ? 'positive' : Number(rating) === 3 ? 'neutral' : 'negative';
+
+      const suggestedReply = await generateWithGemini(
+        `You are writing a review response on behalf of ${client.businessName || 'a South African business'}.
+
+Platform: ${platform || 'Google'}
+Reviewer: ${reviewerName || 'a customer'}
+Rating: ${rating}/5 (${sentiment})
+Review: "${reviewText}"
+Business tone: ${client.toneOfVoice || 'friendly and professional'}
+
+Write a short, genuine response to this ${sentiment} review. Rules:
+- Under 80 words
+- Thank them by first name if available
+- For negative reviews: acknowledge the issue, apologise sincerely, offer to resolve offline (include "please reach out to us directly")
+- For positive reviews: express genuine gratitude, reinforce one thing they mentioned, invite them back
+- No corporate language, no em dashes, use contractions
+- Sign off with the business name only
+
+Output the response text only. No labels, no explanation.`
+      );
+
+      const notif = `${sentiment === 'negative' ? '🚨' : '⭐'} *New ${platform || 'Google'} Review — ${stars}*\n\n` +
+        `From: ${reviewerName || 'Anonymous'}\n` +
+        `"${reviewText}"\n\n` +
+        `*Suggested reply:*\n${suggestedReply}\n\n` +
+        `_Copy this reply and post it on ${platform || 'Google'} now. Drift Studio Reputation Defender_`;
+
+      if (client.whatsappNumber) {
+        await sendWhatsAppToPhone(client.whatsappNumber, notif);
+      }
+
+      await event.data.ref.update({
+        suggestedReply,
+        processedAt: admin.firestore.FieldValue.serverTimestamp(),
+        sentiment,
+      });
+
+      logger.info(`reputationDefenderBot: processed ${sentiment} review for client ${clientId}`);
+    } catch (err) {
+      logger.error(`reputationDefenderBot error for review ${event.params.reviewId}:`, err.message);
     }
   }
 );

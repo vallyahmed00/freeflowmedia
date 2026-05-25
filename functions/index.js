@@ -2720,6 +2720,100 @@ exports.leadResponseBot = onDocumentCreated(
   }
 );
 
+// ==================== INVOICE REMINDER BOT ====================
+
+exports.invoiceReminderBot = onSchedule(
+  {
+    schedule: 'every 24 hours',
+    timeZone: 'Africa/Johannesburg',
+    secrets: ['WHATSAPP_ACCESS_TOKEN', 'WHATSAPP_PHONE_NUMBER_ID', 'RESEND_API_KEY'],
+  },
+  async () => {
+    const { getActiveClients, sendWhatsAppToPhone, sendEmailViaResend } = require('./lib/bots/clientBotHelpers');
+    const clients = await getActiveClients('invoice_reminders');
+    logger.info(`invoiceReminderBot: checking invoices for ${clients.length} clients`);
+
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+
+    for (const client of clients) {
+      try {
+        const overdueSnap = await db.collection('invoices')
+          .where('clientId', '==', client.id)
+          .where('status', '==', 'overdue')
+          .where('dueDate', '<=', admin.firestore.Timestamp.fromDate(sevenDaysAgo))
+          .get();
+
+        if (overdueSnap.empty) continue;
+
+        for (const invoiceDoc of overdueSnap.docs) {
+          const inv = invoiceDoc.data();
+          const dueDateStr = inv.dueDate?.toDate?.().toLocaleDateString('en-ZA') || 'unknown date';
+          const amount = inv.amount ? `R${Number(inv.amount).toLocaleString('en-ZA')}` : 'an outstanding amount';
+          const message = `Hi ${client.businessName || client.name}, this is a friendly reminder that invoice #${inv.invoiceNumber || invoiceDoc.id} for ${amount} was due on ${dueDateStr}. Please arrange payment at your earliest convenience. Reply here if you have any questions.`;
+
+          if (client.whatsappNumber) {
+            await sendWhatsAppToPhone(client.whatsappNumber, message);
+          }
+
+          if (client.email) {
+            await sendEmailViaResend({
+              to: client.email,
+              subject: `Invoice Reminder — ${amount} overdue`,
+              html: `<p>${message}</p><p style="color:#888;font-size:12px">Drift Studio automated reminder. Reply to this email if you have questions.</p>`,
+            });
+          }
+
+          await invoiceDoc.ref.update({
+            lastReminderSentAt: admin.firestore.FieldValue.serverTimestamp(),
+            reminderCount: admin.firestore.FieldValue.increment(1),
+          });
+
+          logger.info(`invoiceReminderBot: reminder sent for invoice ${invoiceDoc.id} to ${client.email}`);
+        }
+      } catch (err) {
+        logger.error(`invoiceReminderBot error for client ${client.id}:`, err.message);
+      }
+    }
+  }
+);
+
+// ==================== FOLLOW-UP NUDGE BOT ====================
+
+exports.followUpNudgeBot = onSchedule(
+  {
+    schedule: 'every 24 hours',
+    timeZone: 'Africa/Johannesburg',
+    secrets: ['DISCORD_WEBHOOK_URL'],
+  },
+  async () => {
+    const threeDaysAgo = new Date();
+    threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
+
+    const snap = await db.collection('leads')
+      .where('status', '==', 'contacted')
+      .where('updatedAt', '<=', admin.firestore.Timestamp.fromDate(threeDaysAgo))
+      .get();
+
+    if (snap.empty) {
+      logger.info('followUpNudgeBot: no stale leads');
+      return;
+    }
+
+    const lines = snap.docs.map(doc => {
+      const l = doc.data();
+      const days = Math.floor((Date.now() - (l.updatedAt?.toMillis?.() || 0)) / 86400000);
+      return `• ${l.business_name || l.email || doc.id} — contacted ${days}d ago${l.phone ? ` | 📞 ${l.phone}` : ''}`;
+    });
+
+    const message = `⏰ **FOLLOW-UP NUDGE** — ${snap.size} lead${snap.size > 1 ? 's' : ''} need attention\n\n${lines.join('\n')}\n\nReply or call to keep momentum going.`;
+    await postDiscordAlert(message);
+    logger.info(`followUpNudgeBot: posted nudge for ${snap.size} leads`);
+  }
+);
+
+// ==================== CONTENT CALENDAR BOT ====================
+
 exports.contentCalendarBot = onSchedule(
   {
     schedule: 'every friday 08:00',

@@ -22,12 +22,13 @@ import {
   Mail,
   Receipt,
   ExternalLink,
-  MessageCircle
+  MessageCircle,
+  Bot
 } from 'lucide-react';
 import WhatsAppInbox from '../components/WhatsAppInbox';
 import { auth, db } from '../firebase/config';
 import { signInAdmin, signOutAdmin } from '../firebase/auth';
-import { doc, getDoc, deleteDoc, collection } from 'firebase/firestore';
+import { doc, getDoc, deleteDoc, collection, getDocs, query, where, updateDoc } from 'firebase/firestore';
 import {
   getAllTestimonials,
   addTestimonial,
@@ -78,6 +79,7 @@ export default function Admin() {
   const [priceComparisons, setPriceComparisons] = useState([]);
   const [payments, setPayments] = useState([]);
   const [approvedCodes, setApprovedCodes] = useState({});
+  const [clients, setClients] = useState([]);
 
   const checkAdminRole = async (user) => {
     try {
@@ -143,6 +145,8 @@ export default function Admin() {
       setPriceComparisons(priceComparisonsData);
       const paymentsData = await getPendingPaymentRequests();
       setPayments(paymentsData);
+      const clientsSnap = await getDocs(collection(db, 'clients'));
+      setClients(clientsSnap.docs.map(d => ({ id: d.id, ...d.data() })));
     } catch (error) {
       console.error('Error loading data:', error);
       toast.error('Failed to load content data');
@@ -454,6 +458,12 @@ export default function Admin() {
             icon={<Receipt size={18} />}
             label={`Payments${payments.length ? ` (${payments.length})` : ''}`}
           />
+          <TabButton
+            active={activeTab === 'bots'}
+            onClick={() => setActiveTab('bots')}
+            icon={<Bot size={18} />}
+            label={`Bots (${clients.length})`}
+          />
         </div>
 
         {/* Content */}
@@ -480,6 +490,9 @@ export default function Admin() {
         )}
         {activeTab === 'whatsapp' && (
           <WhatsAppInbox />
+        )}
+        {activeTab === 'bots' && (
+          <BotsManager clients={clients} onLoad={loadAllData} />
         )}
         {activeTab === 'payments' && (
           <div>
@@ -1117,6 +1130,96 @@ function PriceComparisonsManager({ comparisons, onLoad }) {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+const BOT_LABELS = {
+  lead_response: 'Lead Response',
+  content_calendar: 'Content Calendar',
+  invoice_reminders: 'Invoice Reminders',
+  follow_up_nudge: 'Follow-up Nudge',
+  onboarding_sequence: 'Onboarding Sequence',
+};
+
+function BotsManager({ clients, onLoad }) {
+  const [toggling, setToggling] = useState(null);
+
+  const handleToggle = async (client) => {
+    const newStatus = client.botStatus === 'active' ? 'inactive' : 'active';
+    setToggling(client.id);
+    try {
+      await updateDoc(doc(db, 'clients', client.id), { botStatus: newStatus });
+      toast.success(`${client.businessName || client.email} — bots ${newStatus}`);
+      onLoad();
+    } catch (err) {
+      toast.error('Failed to update bot status');
+    } finally {
+      setToggling(null);
+    }
+  };
+
+  const statusColor = (s) => s === 'active' ? '#22c55e' : s === 'pending_setup' ? '#f59e0b' : '#6b7280';
+
+  return (
+    <div>
+      <h2 style={{ fontSize: '1.8rem', marginBottom: '1.5rem' }}>Bot Clients ({clients.length})</h2>
+      {clients.length === 0 ? (
+        <p style={{ color: 'rgba(255,255,255,0.5)' }}>No clients signed up yet.</p>
+      ) : (
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead>
+              <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
+                {['Business', 'Email', 'Active Bots', 'Status', 'Toggle'].map(h => (
+                  <th key={h} style={{ textAlign: 'left', padding: '0.75rem 1rem', color: 'rgba(255,255,255,0.6)', fontWeight: 600 }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {clients.map(c => (
+                <tr key={c.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                  <td style={{ padding: '0.75rem 1rem', fontWeight: 500 }}>{c.businessName || '—'}</td>
+                  <td style={{ padding: '0.75rem 1rem', color: 'rgba(255,255,255,0.6)' }}>{c.email || '—'}</td>
+                  <td style={{ padding: '0.75rem 1rem', fontSize: '0.82rem', color: 'rgba(255,255,255,0.6)' }}>
+                    {(c.automations || []).length === 0
+                      ? <span style={{ color: '#6b7280' }}>None</span>
+                      : (c.automations || []).map(a => (
+                          <span key={a} style={{ display: 'inline-block', background: 'rgba(147,51,234,0.18)', borderRadius: 4, padding: '2px 7px', marginRight: 4, marginBottom: 2 }}>
+                            {BOT_LABELS[a] || a}
+                          </span>
+                        ))
+                    }
+                  </td>
+                  <td style={{ padding: '0.75rem 1rem' }}>
+                    <span style={{ color: statusColor(c.botStatus), fontWeight: 600, textTransform: 'capitalize' }}>
+                      {c.botStatus || 'not set'}
+                    </span>
+                  </td>
+                  <td style={{ padding: '0.75rem 1rem' }}>
+                    <button
+                      onClick={() => handleToggle(c)}
+                      disabled={toggling === c.id}
+                      style={{
+                        padding: '0.4rem 1rem',
+                        borderRadius: 6,
+                        border: 'none',
+                        cursor: 'pointer',
+                        fontWeight: 600,
+                        fontSize: '0.82rem',
+                        background: c.botStatus === 'active' ? 'rgba(239,68,68,0.15)' : 'rgba(34,197,94,0.15)',
+                        color: c.botStatus === 'active' ? '#f87171' : '#4ade80',
+                      }}
+                    >
+                      {toggling === c.id ? '…' : c.botStatus === 'active' ? 'Deactivate' : 'Activate'}
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }

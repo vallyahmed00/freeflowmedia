@@ -2850,3 +2850,101 @@ exports.contentCalendarBot = onSchedule(
     }
   }
 );
+
+// ==================== CLIENT ONBOARDING BOT ====================
+
+exports.clientOnboardingBot = onDocumentCreated(
+  {
+    document: 'clients/{clientId}',
+    secrets: ['WHATSAPP_ACCESS_TOKEN', 'WHATSAPP_PHONE_NUMBER_ID', 'RESEND_API_KEY'],
+  },
+  async (event) => {
+    const client = event.data?.data();
+    if (!client) return;
+
+    const clientId = event.params.clientId;
+    const name = client.businessName || client.fullName || 'there';
+    const email = client.email;
+    const phone = client.whatsappNumber?.replace(/\s/g, '');
+    const automations = client.automations || [];
+
+    const botList = {
+      lead_response: 'Lead Response Bot — instant WhatsApp replies to new leads',
+      content_calendar: 'Content Calendar Bot — 8 content ideas delivered every Friday',
+      invoice_reminders: 'Invoice Reminder Bot — automated chasing of overdue invoices',
+      follow_up_nudge: 'Follow-up Nudge Bot — alerts when leads go cold',
+      onboarding_sequence: 'Client Onboarding Bot — automated welcome sequence for new clients',
+    };
+
+    const selectedBots = automations.length > 0
+      ? automations.map(a => `• ${botList[a] || a}`).join('\n')
+      : '• Your bots are being configured — we\'ll be in touch within 48 hours.';
+
+    try {
+      const { sendWhatsAppToPhone, sendEmailViaResend } = require('./lib/bots/clientBotHelpers');
+
+      // WhatsApp welcome message
+      if (phone) {
+        const whatsappMsg =
+          `Hey ${name}! 👋 Welcome to Drift Studio.\n\n` +
+          `We've received your setup and your automation bots are being configured. You'll be up and running within 48 hours.\n\n` +
+          `If you have any questions in the meantime, just reply here. We're looking forward to working with you!`;
+        await sendWhatsAppToPhone(phone, whatsappMsg);
+        logger.info(`clientOnboardingBot: WhatsApp sent to ${phone}`);
+      }
+
+      // Onboarding email
+      if (email) {
+        const botsHtml = automations.length > 0
+          ? automations.map(a => `<li>${botList[a] || a}</li>`).join('')
+          : '<li>Your bots are being configured — we\'ll confirm within 48 hours.</li>';
+
+        await sendEmailViaResend({
+          to: email,
+          subject: `Welcome to Drift Studio — your bots are being set up`,
+          html: `
+            <div style="font-family:sans-serif;max-width:600px;margin:0 auto;color:#1a1a1a;">
+              <div style="background:#9333ea;padding:32px;border-radius:12px 12px 0 0;text-align:center;">
+                <h1 style="color:#fff;margin:0;font-size:1.6rem;">Welcome to Drift Studio 🚀</h1>
+              </div>
+              <div style="background:#f9f9f9;padding:32px;border-radius:0 0 12px 12px;">
+                <p style="font-size:1rem;">Hey <strong>${name}</strong>,</p>
+                <p>Thanks for signing up. We've received your details and your automation bots are now being configured.</p>
+
+                <div style="background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:20px;margin:24px 0;">
+                  <p style="margin:0 0 12px;font-weight:600;color:#9333ea;">Your active bots:</p>
+                  <ul style="margin:0;padding-left:20px;line-height:2;">
+                    ${botsHtml}
+                  </ul>
+                </div>
+
+                <p><strong>What happens next:</strong></p>
+                <ol style="line-height:2;">
+                  <li>We configure your bots within <strong>48 hours</strong></li>
+                  <li>You'll receive a confirmation once everything is live</li>
+                  <li>Your bots start running — leads get instant replies, invoices get chased, content ideas arrive every Friday</li>
+                </ol>
+
+                <p>Questions? Just reply to this email or WhatsApp us directly.</p>
+
+                <p style="margin-top:32px;">Looking forward to working with you,<br><strong>Ahmed — Drift Studio</strong></p>
+
+                <hr style="border:none;border-top:1px solid #e5e7eb;margin:32px 0;">
+                <p style="color:#888;font-size:0.8rem;text-align:center;">Drift Studio · driftstudio.co.za</p>
+              </div>
+            </div>
+          `,
+        });
+        logger.info(`clientOnboardingBot: welcome email sent to ${email}`);
+      }
+
+      // Mark onboarding sequence sent
+      await event.data.ref.update({
+        onboardingSequenceSentAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+    } catch (err) {
+      logger.error(`clientOnboardingBot error for client ${clientId}:`, err.message);
+    }
+  }
+);

@@ -46,8 +46,11 @@ client.on(Events.InteractionCreate, async (interaction) => {
       await interaction.editReply(reply || 'No response generated.');
     }
   } catch (err) {
-    console.error(`/${commandName} error:`, err.message);
-    await interaction.editReply('Something went wrong — check the logs.');
+    console.error(`/${commandName} error:`, err?.message ?? err);
+    const userMsg = err?.message?.includes('timed out')
+      ? 'Request timed out — Gemini is slow right now, try again.'
+      : `Error: ${err?.message ?? 'Unknown error'}`;
+    await interaction.editReply(userMsg);
   }
 });
 

@@ -2673,3 +2673,49 @@ exports.sendWhatsAppReply = onRequest(
     });
   }
 );
+
+exports.leadResponseBot = onDocumentCreated(
+  {
+    document: 'leads/{leadId}',
+    secrets: ['WHATSAPP_ACCESS_TOKEN', 'WHATSAPP_PHONE_NUMBER_ID', 'GEMINI_API_KEY'],
+  },
+  async (event) => {
+    const lead = event.data?.data();
+    if (!lead) return;
+
+    const phone = lead.phone?.replace(/\s/g, '');
+    if (!phone) {
+      logger.info('leadResponseBot: no phone on lead, skipping');
+      return;
+    }
+
+    let businessName = 'Drift Studio';
+    let tone = 'friendly';
+    let audience = 'businesses';
+
+    if (lead.clientId) {
+      const clientDoc = await db.collection('clients').doc(lead.clientId).get();
+      if (clientDoc.exists) {
+        const c = clientDoc.data();
+        businessName = c.businessName || businessName;
+        tone = c.toneOfVoice || tone;
+        audience = c.targetAudience || audience;
+      }
+    }
+
+    try {
+      const { sendWhatsAppToPhone, generateWithGemini } = require('./lib/bots/clientBotHelpers');
+      const message = await generateWithGemini(
+        `You work for ${businessName}. A new lead just enquired. Write a single WhatsApp message (max 3 sentences) to respond instantly. Tone: ${tone}. No em dashes. Contractions only. End with a simple question to continue the conversation. Business serves: ${audience}.`
+      );
+      await sendWhatsAppToPhone(phone, message);
+      await event.data.ref.update({
+        leadResponseSent: true,
+        leadResponseSentAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+      logger.info(`leadResponseBot: WhatsApp sent to ${phone}`);
+    } catch (err) {
+      logger.error('leadResponseBot error:', err.message);
+    }
+  }
+);

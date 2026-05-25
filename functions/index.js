@@ -93,6 +93,26 @@ const postDiscordAlert = async (message) => {
   }
 };
 
+const postWhatsAppOutreach = async (phone, lead) => {
+  const token = process.env.WHATSAPP_ACCESS_TOKEN;
+  const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
+  if (!token || !phoneNumberId) return;
+  const to = String(phone).replace(/[^0-9]/g, "");
+  if (!to) return;
+  const name = lead.business_name || "there";
+  const message = `Hi! I'm Ahmed from Drift Studio, a South African digital marketing agency. I came across ${name} and wanted to reach out about helping you grow online. Would you be open to a quick chat?`;
+  try {
+    await axios.post(
+      `https://graph.facebook.com/v19.0/${phoneNumberId}/messages`,
+      { messaging_product: "whatsapp", to, type: "text", text: { body: message } },
+      { headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" } }
+    );
+    logger.info(`WhatsApp outreach sent to ${to}`);
+  } catch (e) {
+    logger.error("WhatsApp outreach failed:", e.response?.data || e.message);
+  }
+};
+
 const HUMANIZER_RULES = `HUMANIZER RULES — apply every one:
 - No em dashes (—)
 - Never open with "I hope this finds you well" or any filler opener
@@ -313,7 +333,7 @@ exports.contentGeneratorProxy = onRequest(
 exports.salesAgentTrigger = onDocumentCreated(
   {
     document: "leads/{leadId}",
-    secrets: ["RESEND_API_KEY", "GEMINI_API_KEY", "DISCORD_WEBHOOK_URL"],
+    secrets: ["RESEND_API_KEY", "GEMINI_API_KEY", "DISCORD_WEBHOOK_URL", "WHATSAPP_ACCESS_TOKEN", "WHATSAPP_PHONE_NUMBER_ID"],
     timeoutSeconds: 60,
   },
   async (event) => {
@@ -324,10 +344,17 @@ exports.salesAgentTrigger = onDocumentCreated(
     if (lead.salesAgent?.sequenceStep != null) return;
 
     if (!lead.email) {
-      logger.warn(`salesAgentTrigger: lead ${leadId} has no email, skipping email cadence`);
-      await postDiscordAlert(
-        `🎯 NEW LEAD (no email)\n**${lead.business_name || 'Unknown'}** — ${lead.industry || 'Unknown industry'}\n📍 ${lead.location || 'Unknown location'}${lead.phone ? `\n📞 ${lead.phone}` : ''}\n_Manual outreach needed_`
-      ).catch(() => {});
+      logger.warn(`salesAgentTrigger: lead ${leadId} has no email`);
+      if (lead.phone) {
+        await postWhatsAppOutreach(lead.phone, lead);
+        await postDiscordAlert(
+          `🎯 NEW LEAD (WhatsApp sent)\n**${lead.business_name || 'Unknown'}** — ${lead.industry || 'Unknown industry'}\n📍 ${lead.location || 'Unknown location'}\n📞 ${lead.phone}`
+        ).catch(() => {});
+      } else {
+        await postDiscordAlert(
+          `🎯 NEW LEAD (no contact info)\n**${lead.business_name || 'Unknown'}** — ${lead.industry || 'Unknown industry'}\n📍 ${lead.location || 'Unknown location'}`
+        ).catch(() => {});
+      }
       return;
     }
 
@@ -407,9 +434,27 @@ exports.generateStrategy = onRequest(
           .split(",")
           .map(c => c.trim().toLowerCase())
           .filter(Boolean);
-        const validCodes = ["family", ...extraCodes];
-        if (!validCodes.includes(promoCode.toLowerCase())) {
-          return res.status(400).json({ error: "Invalid promo code" });
+        const staticCodes = ["family", ...extraCodes];
+
+        if (staticCodes.includes(promoCode.toLowerCase())) {
+          // valid static promo — allow through
+        } else {
+          // check Firestore one-time access codes
+          const codeSnap = await db
+            .collection("accessCodes")
+            .where("code", "==", promoCode.toUpperCase())
+            .where("used", "==", false)
+            .limit(1)
+            .get();
+
+          if (codeSnap.empty) {
+            return res.status(400).json({ error: "Invalid or already used access code." });
+          }
+
+          await codeSnap.docs[0].ref.update({
+            used: true,
+            usedAt: admin.firestore.FieldValue.serverTimestamp(),
+          });
         }
       }
 
@@ -2469,6 +2514,160 @@ exports.triggerAutoGenerate = onRequest(
         return res.status(200).json({ newCount, skippedCount, queriesRun });
       } catch (err) {
         logger.error("triggerAutoGenerate error:", err);
+        return res.status(500).json({ error: err.message });
+      }
+    });
+  }
+);
+
+// ==================== WHATSAPP INBOX ====================
+
+exports.whatsAppWebhook = onRequest(
+  {
+    secrets: ["WHATSAPP_ACCESS_TOKEN", "WHATSAPP_VERIFY_TOKEN", "DISCORD_WEBHOOK_URL"],
+  },
+  async (req, res) => {
+    // GET — webhook verification by Meta
+    if (req.method === "GET") {
+      const mode = req.query["hub.mode"];
+      const token = req.query["hub.verify_token"];
+      const challenge = req.query["hub.challenge"];
+      if (mode === "subscribe" && token === process.env.WHATSAPP_VERIFY_TOKEN) {
+        return res.status(200).send(challenge);
+      }
+      return res.status(403).send("Forbidden");
+    }
+
+    // POST — incoming message from Meta
+    if (req.method === "POST") {
+      try {
+        const body = req.body;
+        if (body.object !== "whatsapp_business_account") {
+          return res.status(400).json({ error: "Not a WhatsApp Business Account event" });
+        }
+
+        const changes = body.entry?.[0]?.changes?.[0]?.value;
+        if (!changes) return res.sendStatus(200);
+
+        const contact = changes.contacts?.[0];
+        const message = changes.messages?.[0];
+        if (!contact || !message || message.type !== "text") return res.sendStatus(200);
+
+        const phone = message.from;
+        const messageId = message.id;
+        const body_text = message.text?.body || "";
+        const senderName = contact.profile?.name || phone;
+
+        // Look up lead by phone to get business_name
+        let business_name = senderName;
+        try {
+          const leadsSnap = await db
+            .collection("leads")
+            .where("phone", ">=", phone.slice(-9))
+            .limit(5)
+            .get();
+          if (!leadsSnap.empty) {
+            business_name = leadsSnap.docs[0].data().business_name || senderName;
+          }
+        } catch (e) {
+          logger.warn("whatsAppWebhook: lead lookup failed", e.message);
+        }
+
+        // Save / update conversation doc
+        const convRef = db.collection("whatsappConversations").doc(phone);
+        await convRef.set(
+          {
+            business_name,
+            lastMessage: body_text,
+            lastMessageAt: admin.firestore.FieldValue.serverTimestamp(),
+            unreadCount: admin.firestore.FieldValue.increment(1),
+            status: "open",
+          },
+          { merge: true }
+        );
+
+        // Save message to subcollection
+        await convRef.collection("messages").doc(messageId).set({
+          from: "lead",
+          body: body_text,
+          timestamp: admin.firestore.FieldValue.serverTimestamp(),
+          whatsapp_message_id: messageId,
+        });
+
+        // Discord alert
+        await postDiscordAlert(
+          `📩 WHATSAPP REPLY\n**${business_name}** | ${phone}\n"${body_text}"`
+        );
+
+        return res.sendStatus(200);
+      } catch (err) {
+        logger.error("whatsAppWebhook error:", err);
+        return res.status(500).json({ error: err.message });
+      }
+    }
+
+    return res.status(405).send("Method Not Allowed");
+  }
+);
+
+exports.sendWhatsAppReply = onRequest(
+  {
+    cors: true,
+    secrets: ["WHATSAPP_ACCESS_TOKEN", "WHATSAPP_PHONE_NUMBER_ID"],
+  },
+  async (req, res) => {
+    cors(req, res, async () => {
+      if (req.method !== "POST") {
+        return res.status(405).json({ error: "Method not allowed" });
+      }
+
+      const { phone, message } = req.body || {};
+      if (!phone || !message) {
+        return res.status(400).json({ error: "phone and message are required" });
+      }
+
+      const token = process.env.WHATSAPP_ACCESS_TOKEN;
+      const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
+
+      try {
+        // Send via WhatsApp Cloud API
+        await axios.post(
+          `https://graph.facebook.com/v19.0/${phoneNumberId}/messages`,
+          {
+            messaging_product: "whatsapp",
+            to: phone,
+            type: "text",
+            text: { body: message },
+          },
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+              "Content-Type": "application/json",
+            },
+          }
+        );
+
+        // Save outbound message to subcollection
+        const convRef = db.collection("whatsappConversations").doc(phone);
+        await convRef.collection("messages").add({
+          from: "business",
+          body: message,
+          timestamp: admin.firestore.FieldValue.serverTimestamp(),
+        });
+
+        // Update conversation doc
+        await convRef.set(
+          {
+            lastMessage: message,
+            lastMessageAt: admin.firestore.FieldValue.serverTimestamp(),
+            status: "open",
+          },
+          { merge: true }
+        );
+
+        return res.status(200).json({ success: true });
+      } catch (err) {
+        logger.error("sendWhatsAppReply error:", err.response?.data || err.message);
         return res.status(500).json({ error: err.message });
       }
     });

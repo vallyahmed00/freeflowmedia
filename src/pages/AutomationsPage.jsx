@@ -42,6 +42,36 @@ const BOTS = [
     features: ['Instant welcome WhatsApp', 'Day 1 onboarding email', 'Automated follow-ups', 'Admin alert if no response'],
     price: 'R600', period: '/month',
   },
+  {
+    icon: '📊', badge: 'Intelligence', name: 'Competitor Tracker Bot',
+    description: 'Every Monday morning, get an AI intelligence briefing on what your competitors are doing — and one specific move to stay ahead of them.',
+    features: ['Weekly competitor digest', 'Industry trend analysis', 'Delivered via WhatsApp + email', 'Stored for reference'],
+    price: 'R800', period: '/month', isNew: true,
+  },
+  {
+    icon: '💬', badge: 'Sales', name: 'WhatsApp Lead Qualifier',
+    description: 'Every new WhatsApp enquiry gets an instant 3-question qualifier. By the time you check your phone, the lead has told you exactly what they need.',
+    features: ['Instant qualifier message', 'Captures budget + pain point', 'Works 24/7', 'Logs answers to your CRM'],
+    price: 'R900', period: '/month', isNew: true,
+  },
+  {
+    icon: '📄', badge: 'Sales', name: 'Instant Proposal Bot',
+    description: 'Mark a lead as qualified and a personalised, branded proposal lands in their inbox within 3 minutes. Most agencies take 3 days.',
+    features: ['AI-written tailored proposal', 'Fires the moment lead qualifies', 'Your pricing and services', 'Discord alert when sent'],
+    price: 'R700', period: '/month', isNew: true,
+  },
+  {
+    icon: '📈', badge: 'Content', name: 'Trend Alert Bot',
+    description: 'Every morning at 7am, a ready-to-post caption based on what\'s trending in South Africa right now drops in your WhatsApp. Post in 30 seconds.',
+    features: ['Daily 7am WhatsApp alert', 'SA-specific trending topics', 'Ready-to-post caption included', 'Tailored to your industry'],
+    price: 'R600', period: '/month', isNew: true,
+  },
+  {
+    icon: '⭐', badge: 'Reputation', name: 'Reputation Defender Bot',
+    description: 'The second a new Google or Facebook review goes up, you get a WhatsApp with a suggested reply already written. Negative reviews handled in minutes.',
+    features: ['Instant review notification', 'AI-written suggested reply', 'Handles positive + negative', 'Improves Maps ranking'],
+    price: 'R750', period: '/month', isNew: true,
+  },
 ];
 
 export default function AutomationsPage() {
@@ -83,9 +113,14 @@ export default function AutomationsPage() {
 
       <div className="bots-grid">
         {BOTS.map((bot, i) => (
-          <motion.div key={bot.name} className="bot-card" {...fadeUp(i * 0.07)}>
-            <div className="bot-card-icon">{bot.icon}</div>
-            <div className="bot-card-badge">{bot.badge}</div>
+          <motion.div key={bot.name} className={`bot-card${bot.isNew ? ' bot-card--new' : ''}`} {...fadeUp(i * 0.07)}>
+            <div className="bot-card-top">
+              <div className="bot-card-icon">{bot.icon}</div>
+              <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
+                <div className="bot-card-badge">{bot.badge}</div>
+                {bot.isNew && <div className="bot-card-new">New</div>}
+              </div>
+            </div>
             <h3>{bot.name}</h3>
             <p>{bot.description}</p>
             <ul className="bot-card-features">
@@ -97,11 +132,29 @@ export default function AutomationsPage() {
       </div>
 
       <motion.div className="automations-bundle" {...fadeUp(0.1)}>
-        <h2>All 5 Bots — Full Automation Suite</h2>
-        <p>Get every bot running for one flat monthly fee. We handle setup, maintenance, and updates.</p>
-        <div className="bundle-price">R2,500 <span>/month</span></div>
-        <div className="bundle-saving">Save R400/month vs buying individually</div>
-        <a href="#demo" className="btn btn-primary">Get the Full Suite</a>
+        <h2>Bundle & Save</h2>
+        <p>Get multiple bots for one flat monthly fee. We handle setup, maintenance, and updates.</p>
+        <div className="bundle-tiers">
+          <div className="bundle-tier">
+            <div className="bundle-tier-name">Starter Pack</div>
+            <div className="bundle-tier-desc">First 5 bots</div>
+            <div className="bundle-price">R2,500 <span>/month</span></div>
+            <div className="bundle-saving">Save R400/month</div>
+          </div>
+          <div className="bundle-tier bundle-tier--featured">
+            <div className="bundle-tier-name">Full Suite 👑</div>
+            <div className="bundle-tier-desc">All 10 bots</div>
+            <div className="bundle-price">R5,500 <span>/month</span></div>
+            <div className="bundle-saving">Save R1,150/month</div>
+          </div>
+          <div className="bundle-tier">
+            <div className="bundle-tier-name">Advanced Pack</div>
+            <div className="bundle-tier-desc">Last 5 bots</div>
+            <div className="bundle-price">R3,250 <span>/month</span></div>
+            <div className="bundle-saving">Save R500/month</div>
+          </div>
+        </div>
+        <a href="#demo" className="btn btn-primary" style={{ marginTop: '1.5rem', display: 'inline-block' }}>Get Started</a>
       </motion.div>
 
       <motion.div className="how-it-works" {...fadeUp(0.1)}>

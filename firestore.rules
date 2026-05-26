@@ -246,6 +246,25 @@ service cloud.firestore {
       allow update, delete: if isAdmin();
     }
 
+    // --- BOT OUTPUT COLLECTIONS ---
+    // Reviews: written by Cloud Functions (Admin SDK), read by the owning client
+    match /reviews/{reviewId} {
+      allow read: if isAuthenticated() && (resource.data.clientId == request.auth.uid || isAdmin());
+      allow write: if isAdmin();
+    }
+
+    // Weekly content ideas delivered to each client by contentCalendarBot
+    match /clientContent/{clientId}/weeklyIdeas/{ideaId} {
+      allow read: if isOwner(clientId) || isAdmin();
+      allow write: if isAdmin();
+    }
+
+    // Competitor intelligence digests delivered by competitorTrackerBot
+    match /clientIntel/{clientId}/weeklyDigests/{digestId} {
+      allow read: if isOwner(clientId) || isAdmin();
+      allow write: if isAdmin();
+    }
+
     // --- WHATSAPP INBOX ---
     match /whatsappConversations/{phone} {
       allow read, write: if isAdmin();

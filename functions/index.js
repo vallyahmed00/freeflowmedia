@@ -3272,3 +3272,355 @@ Output the response text only. No labels, no explanation.`
     }
   }
 );
+
+// ==================== REVIEW REQUEST BOT ====================
+
+exports.reviewRequestBot = onSchedule(
+  {
+    schedule: 'every 24 hours',
+    timeZone: 'Africa/Johannesburg',
+    secrets: ['WHATSAPP_ACCESS_TOKEN', 'WHATSAPP_PHONE_NUMBER_ID'],
+  },
+  async () => {
+    const { sendWhatsAppToPhone } = require('./lib/bots/clientBotHelpers');
+    const threeDaysAgo = new Date();
+    threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
+
+    // Find leads converted 3+ days ago that haven't had a review request sent
+    const snap = await db.collection('leads')
+      .where('status', '==', 'converted')
+      .where('reviewRequestSent', '==', false)
+      .where('convertedAt', '<=', admin.firestore.Timestamp.fromDate(threeDaysAgo))
+      .get();
+
+    if (snap.empty) {
+      logger.info('reviewRequestBot: no eligible leads');
+      return;
+    }
+
+    for (const leadDoc of snap.docs) {
+      const lead = leadDoc.data();
+      const phone = lead.phone?.replace(/\s/g, '');
+      if (!phone) continue;
+
+      try {
+        // Look up which client this lead belongs to for their Google review link
+        let reviewLink = 'https://g.page/r/driftstudio/review';
+        if (lead.clientId) {
+          const clientDoc = await db.collection('clients').doc(lead.clientId).get();
+          if (clientDoc.exists && clientDoc.data().googleReviewLink) {
+            reviewLink = clientDoc.data().googleReviewLink;
+          }
+        }
+
+        const message =
+          `Hey ${lead.business_name || 'there'}! 👋\n\n` +
+          `We really enjoyed working with you and hope you're happy with the results.\n\n` +
+          `Would you mind leaving us a quick Google review? It takes about 30 seconds and means the world to us:\n` +
+          `${reviewLink}\n\n` +
+          `Thanks so much — Drift Studio 🙏`;
+
+        await sendWhatsAppToPhone(phone, message);
+        await leadDoc.ref.update({
+          reviewRequestSent: true,
+          reviewRequestSentAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+        logger.info(`reviewRequestBot: sent to ${phone}`);
+      } catch (err) {
+        logger.error(`reviewRequestBot error for lead ${leadDoc.id}:`, err.message);
+      }
+    }
+  }
+);
+
+// ==================== MONTHLY REPORT BOT ====================
+
+exports.monthlyReportBot = onSchedule(
+  {
+    schedule: '0 8 1 * *',
+    timeZone: 'Africa/Johannesburg',
+    secrets: ['GEMINI_API_KEY', 'RESEND_API_KEY'],
+  },
+  async () => {
+    const { getActiveClients, generateWithGemini, sendEmailViaResend } = require('./lib/bots/clientBotHelpers');
+    const clients = await getActiveClients('monthly_report');
+    logger.info(`monthlyReportBot: running for ${clients.length} clients`);
+
+    const now = new Date();
+    const monthName = now.toLocaleDateString('en-ZA', { month: 'long', year: 'numeric' });
+    const firstOfMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const firstOfThisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
+    for (const client of clients) {
+      try {
+        // Gather stats from Firestore
+        const [leadsSnap, contentSnap, ideasSnap] = await Promise.all([
+          db.collection('leads')
+            .where('clientId', '==', client.id)
+            .where('createdAt', '>=', admin.firestore.Timestamp.fromDate(firstOfMonth))
+            .where('createdAt', '<', admin.firestore.Timestamp.fromDate(firstOfThisMonth))
+            .get(),
+          db.collection('clientContent').doc(client.id).collection('weeklyIdeas')
+            .where('generatedAt', '>=', admin.firestore.Timestamp.fromDate(firstOfMonth))
+            .get(),
+          db.collection('clientIntel').doc(client.id).collection('weeklyDigests')
+            .where('generatedAt', '>=', admin.firestore.Timestamp.fromDate(firstOfMonth))
+            .get(),
+        ]);
+
+        const leadsCount = leadsSnap.size;
+        const contentBatchesCount = contentSnap.size;
+        const intelReportsCount = ideasSnap.size;
+
+        const summary = await generateWithGemini(
+          `Write a short, warm monthly performance summary for a Drift Studio automation client.
+
+Business: ${client.businessName || client.name}
+Month: ${monthName}
+Stats:
+- New leads captured: ${leadsCount}
+- Content idea batches delivered: ${contentBatchesCount} (${contentBatchesCount * 8} total ideas)
+- Competitor intelligence reports: ${intelReportsCount}
+- Active bots: ${(client.automations || []).length}
+
+Write 3 short paragraphs:
+1. Celebrate what happened this month — be specific with the numbers
+2. One insight or recommendation for next month based on their industry (${client.industry || 'general'})
+3. A motivating close — remind them the bots are working even when they sleep
+
+Tone: warm, direct, no corporate language. Under 180 words total.`
+        );
+
+        await sendEmailViaResend({
+          to: client.email,
+          subject: `Your ${monthName} Automation Report — Drift Studio`,
+          html: `
+            <div style="font-family:sans-serif;max-width:600px;margin:0 auto;color:#1a1a1a;">
+              <div style="background:#9333ea;padding:32px;border-radius:12px 12px 0 0;text-align:center;">
+                <h1 style="color:#fff;margin:0;font-size:1.4rem;">📊 ${monthName} Report</h1>
+                <p style="color:rgba(255,255,255,0.8);margin:8px 0 0;font-size:0.9rem;">${client.businessName || client.name}</p>
+              </div>
+              <div style="background:#f9f9f9;padding:32px;border-radius:0 0 12px 12px;">
+                <div style="display:flex;gap:16px;margin-bottom:28px;flex-wrap:wrap;">
+                  ${[
+                    ['🎯', 'New Leads', leadsCount],
+                    ['📅', 'Content Batches', contentBatchesCount],
+                    ['📊', 'Intel Reports', intelReportsCount],
+                    ['🤖', 'Active Bots', (client.automations || []).length],
+                  ].map(([icon, label, val]) =>
+                    `<div style="flex:1;min-width:110px;background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:16px;text-align:center;">
+                      <div style="font-size:1.5rem;">${icon}</div>
+                      <div style="font-size:1.6rem;font-weight:800;color:#7c3aed;">${val}</div>
+                      <div style="font-size:0.75rem;color:#888;">${label}</div>
+                    </div>`
+                  ).join('')}
+                </div>
+                <div style="white-space:pre-wrap;line-height:1.8;font-size:0.95rem;">${summary}</div>
+                <hr style="border:none;border-top:1px solid #e5e7eb;margin:28px 0;">
+                <p style="color:#888;font-size:0.8rem;text-align:center;">Drift Studio Automation Suite · driftstudio.co.za</p>
+              </div>
+            </div>`,
+        });
+
+        logger.info(`monthlyReportBot: report sent to ${client.email}`);
+      } catch (err) {
+        logger.error(`monthlyReportBot error for client ${client.id}:`, err.message);
+      }
+    }
+  }
+);
+
+// ==================== RE-ENGAGEMENT BOT ====================
+
+exports.reEngagementBot = onSchedule(
+  {
+    schedule: 'every 24 hours',
+    timeZone: 'Africa/Johannesburg',
+    secrets: ['GEMINI_API_KEY', 'WHATSAPP_ACCESS_TOKEN', 'WHATSAPP_PHONE_NUMBER_ID'],
+  },
+  async () => {
+    const { sendWhatsAppToPhone, generateWithGemini } = require('./lib/bots/clientBotHelpers');
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+    const snap = await db.collection('leads')
+      .where('salesAgent.status', '==', 'no_response')
+      .where('reEngagementSent', '!=', true)
+      .where('salesAgent.lastEmailedAt', '<=', admin.firestore.Timestamp.fromDate(thirtyDaysAgo))
+      .get();
+
+    if (snap.empty) {
+      logger.info('reEngagementBot: no eligible leads');
+      return;
+    }
+
+    logger.info(`reEngagementBot: ${snap.size} leads to re-engage`);
+
+    for (const leadDoc of snap.docs) {
+      const lead = leadDoc.data();
+      const phone = lead.phone?.replace(/\s/g, '');
+      if (!phone) continue;
+
+      try {
+        const message = await generateWithGemini(
+          `You are Ahmed from Drift Studio, a South African digital marketing agency.
+
+Write a single re-engagement WhatsApp message (max 4 sentences) to ${lead.business_name || 'a business owner'} in the ${lead.industry || 'general'} industry. You reached out about 30 days ago but didn't hear back.
+
+Rules:
+- Completely different angle from a standard follow-up — lead with a stat, trend, or insight relevant to their industry in SA
+- Don't mention the previous emails
+- End with one low-pressure question — not "are you interested?"
+- Conversational, warm, no em dashes, contractions throughout
+- Sign off as Ahmed, Drift Studio`
+        );
+
+        await sendWhatsAppToPhone(phone, message);
+        await leadDoc.ref.update({
+          reEngagementSent: true,
+          reEngagementSentAt: admin.firestore.FieldValue.serverTimestamp(),
+          'salesAgent.status': 're_engaged',
+        });
+        logger.info(`reEngagementBot: sent to ${phone}`);
+      } catch (err) {
+        logger.error(`reEngagementBot error for lead ${leadDoc.id}:`, err.message);
+      }
+    }
+  }
+);
+
+// ==================== WIN-BACK BOT ====================
+
+exports.winBackBot = onSchedule(
+  {
+    schedule: 'every 24 hours',
+    timeZone: 'Africa/Johannesburg',
+    secrets: ['GEMINI_API_KEY', 'WHATSAPP_ACCESS_TOKEN', 'WHATSAPP_PHONE_NUMBER_ID'],
+  },
+  async () => {
+    const { getActiveClients, sendWhatsAppToPhone, generateWithGemini } = require('./lib/bots/clientBotHelpers');
+    const clients = await getActiveClients('win_back');
+    logger.info(`winBackBot: checking ${clients.length} clients`);
+
+    const sixtyDaysAgo = new Date();
+    sixtyDaysAgo.setDate(sixtyDaysAgo.getDate() - 60);
+
+    for (const client of clients) {
+      try {
+        // Find this client's customers who haven't been seen in 60+ days
+        const inactiveSnap = await db.collection('leads')
+          .where('clientId', '==', client.id)
+          .where('status', '==', 'converted')
+          .where('winBackSent', '!=', true)
+          .where('lastActivityAt', '<=', admin.firestore.Timestamp.fromDate(sixtyDaysAgo))
+          .limit(10)
+          .get();
+
+        if (inactiveSnap.empty) continue;
+
+        for (const customerDoc of inactiveSnap.docs) {
+          const customer = customerDoc.data();
+          const phone = customer.phone?.replace(/\s/g, '');
+          if (!phone) continue;
+
+          const message = await generateWithGemini(
+            `Write a friendly win-back WhatsApp message from ${client.businessName || 'a South African business'} to a customer who hasn't been back in 60+ days.
+
+Customer name: ${customer.business_name || 'there'}
+Business type: ${client.industry || 'general service business'}
+Tone: ${client.toneOfVoice || 'warm and friendly'}
+
+Rules:
+- Max 3 sentences
+- Reference the time away naturally — don't make them feel bad about it
+- Include a genuine, specific reason to come back (a new service, a seasonal special, or a "we miss you" offer — make one up that fits the industry)
+- End with a simple question: "Want to book in?" or "Interested?"
+- No em dashes, contractions throughout
+- Do NOT sign off with the business name — it will be added automatically`
+          );
+
+          const fullMessage = `${message}\n\n— ${client.businessName || 'The Team'}`;
+
+          await sendWhatsAppToPhone(phone, fullMessage);
+          await customerDoc.ref.update({
+            winBackSent: true,
+            winBackSentAt: admin.firestore.FieldValue.serverTimestamp(),
+          });
+          logger.info(`winBackBot: sent to ${phone} for client ${client.id}`);
+        }
+      } catch (err) {
+        logger.error(`winBackBot error for client ${client.id}:`, err.message);
+      }
+    }
+  }
+);
+
+// ==================== UPSELL BOT ====================
+
+exports.upsellBot = onSchedule(
+  {
+    schedule: 'every 24 hours',
+    timeZone: 'Africa/Johannesburg',
+    secrets: ['GEMINI_API_KEY', 'WHATSAPP_ACCESS_TOKEN', 'WHATSAPP_PHONE_NUMBER_ID'],
+  },
+  async () => {
+    const { getActiveClients, sendWhatsAppToPhone, generateWithGemini } = require('./lib/bots/clientBotHelpers');
+    const clients = await getActiveClients('upsell');
+    logger.info(`upsellBot: checking ${clients.length} clients`);
+
+    for (const client of clients) {
+      const upsellDelayDays = client.upsellDelayDays || 7;
+      const cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() - upsellDelayDays);
+      const upperCutoff = new Date();
+      upperCutoff.setDate(upperCutoff.getDate() - (upsellDelayDays + 1));
+
+      try {
+        const eligibleSnap = await db.collection('leads')
+          .where('clientId', '==', client.id)
+          .where('status', '==', 'converted')
+          .where('upsellSent', '!=', true)
+          .where('convertedAt', '<=', admin.firestore.Timestamp.fromDate(cutoff))
+          .where('convertedAt', '>=', admin.firestore.Timestamp.fromDate(upperCutoff))
+          .limit(10)
+          .get();
+
+        if (eligibleSnap.empty) continue;
+
+        const services = client.upsellServices || `premium services at ${client.businessName || 'our business'}`;
+
+        for (const customerDoc of eligibleSnap.docs) {
+          const customer = customerDoc.data();
+          const phone = customer.phone?.replace(/\s/g, '');
+          if (!phone) continue;
+
+          const message = await generateWithGemini(
+            `Write a short upsell WhatsApp message from ${client.businessName || 'a South African business'} to a customer who purchased ${upsellDelayDays} days ago.
+
+Customer: ${customer.business_name || 'there'}
+Business type: ${client.industry || 'service business'}
+Available upsell services: ${services}
+Tone: ${client.toneOfVoice || 'friendly'}
+
+Rules:
+- Max 3 sentences
+- Reference their recent purchase naturally without being pushy
+- Mention one specific next service they'd logically want
+- Create light urgency (limited slots, this week only, seasonal) — keep it believable
+- End with a simple yes/no question
+- No em dashes, contractions throughout`
+          );
+
+          await sendWhatsAppToPhone(phone, message);
+          await customerDoc.ref.update({
+            upsellSent: true,
+            upsellSentAt: admin.firestore.FieldValue.serverTimestamp(),
+          });
+          logger.info(`upsellBot: sent to ${phone} for client ${client.id}`);
+        }
+      } catch (err) {
+        logger.error(`upsellBot error for client ${client.id}:`, err.message);
+      }
+    }
+  }
+);
